@@ -321,9 +321,108 @@ function findEntry(PDO $pdo, int $id): ?array
     return is_array($entry) ? $entry : null;
 }
 
-function loadEntriesPage(PDO $pdo, int $page, int $perPage): array
+function normalizeFilterDate(string $value): ?string
 {
-    $totalEntries = (int) $pdo->query('SELECT COUNT(*) FROM medicine_intake_logs')->fetchColumn();
+    $cleanValue = trim($value);
+    if ($cleanValue === '') {
+        return null;
+    }
+
+    $date = DateTimeImmutable::createFromFormat('!Y-m-d', $cleanValue);
+    $errors = DateTimeImmutable::getLastErrors();
+    $hasParseErrors = is_array($errors)
+        && (($errors['warning_count'] ?? 0) > 0 || ($errors['error_count'] ?? 0) > 0);
+
+    if (!$date instanceof DateTimeImmutable || $hasParseErrors) {
+        return null;
+    }
+
+    return $date->format('Y-m-d');
+}
+
+function normalizeEntryFilters(array $filters): array
+{
+    $search = trim((string) ($filters['search'] ?? ''));
+    if (strlen($search) > 120) {
+        $search = substr($search, 0, 120);
+    }
+
+    $medicineId = (int) ($filters['medicine_id'] ?? 0);
+    if ($medicineId <= 0) {
+        $medicineId = null;
+    }
+
+    $rating = (int) ($filters['rating'] ?? 0);
+    if ($rating < 1 || $rating > 5) {
+        $rating = null;
+    }
+
+    $fromDate = normalizeFilterDate((string) ($filters['from_date'] ?? ''));
+    $toDate = normalizeFilterDate((string) ($filters['to_date'] ?? ''));
+
+    if ($fromDate !== null && $toDate !== null && $fromDate > $toDate) {
+        [$fromDate, $toDate] = [$toDate, $fromDate];
+    }
+
+    return [
+        'search' => $search,
+        'medicine_id' => $medicineId,
+        'rating' => $rating,
+        'from_date' => $fromDate,
+        'to_date' => $toDate,
+    ];
+}
+
+function loadEntriesPage(PDO $pdo, int $page, int $perPage, array $filters): array
+{
+    $normalizedFilters = normalizeEntryFilters($filters);
+
+    $whereParts = [];
+    $bindings = [];
+
+    if ($normalizedFilters['search'] !== '') {
+        $whereParts[] = '(m.name LIKE :search OR COALESCE(l.notes, "") LIKE :search)';
+        $bindings[':search'] = '%' . $normalizedFilters['search'] . '%';
+    }
+
+    if ($normalizedFilters['medicine_id'] !== null) {
+        $whereParts[] = 'l.medicine_id = :medicine_id';
+        $bindings[':medicine_id'] = $normalizedFilters['medicine_id'];
+    }
+
+    if ($normalizedFilters['rating'] !== null) {
+        $whereParts[] = 'l.rating = :rating';
+        $bindings[':rating'] = $normalizedFilters['rating'];
+    }
+
+    if ($normalizedFilters['from_date'] !== null) {
+        $whereParts[] = 'l.taken_at >= :from_date';
+        $bindings[':from_date'] = $normalizedFilters['from_date'] . ' 00:00:00';
+    }
+
+    if ($normalizedFilters['to_date'] !== null) {
+        $toDateEnd = (new DateTimeImmutable($normalizedFilters['to_date'] . ' 00:00:00'))
+            ->modify('+1 day')
+            ->format('Y-m-d H:i:s');
+        $whereParts[] = 'l.taken_at < :to_date';
+        $bindings[':to_date'] = $toDateEnd;
+    }
+
+    $whereSql = $whereParts !== [] ? (' WHERE ' . implode(' AND ', $whereParts)) : '';
+    $totalAllEntries = (int) $pdo->query('SELECT COUNT(*) FROM medicine_intake_logs')->fetchColumn();
+
+    $countStatement = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM medicine_intake_logs l
+         INNER JOIN medicines m ON m.id = l.medicine_id'
+        . $whereSql
+    );
+    foreach ($bindings as $bindingKey => $bindingValue) {
+        $paramType = is_int($bindingValue) ? PDO::PARAM_INT : PDO::PARAM_STR;
+        $countStatement->bindValue($bindingKey, $bindingValue, $paramType);
+    }
+    $countStatement->execute();
+    $totalEntries = (int) $countStatement->fetchColumn();
     $totalPages = max(1, (int) ceil($totalEntries / $perPage));
     $safePage = min(max($page, 1), $totalPages);
     $offset = ($safePage - 1) * $perPage;
@@ -340,9 +439,14 @@ function loadEntriesPage(PDO $pdo, int $page, int $perPage): array
                 l.created_at
          FROM medicine_intake_logs l
          INNER JOIN medicines m ON m.id = l.medicine_id
+         ' . $whereSql . '
          ORDER BY l.taken_at DESC, l.id DESC
          LIMIT :limit OFFSET :offset'
     );
+    foreach ($bindings as $bindingKey => $bindingValue) {
+        $paramType = is_int($bindingValue) ? PDO::PARAM_INT : PDO::PARAM_STR;
+        $statement->bindValue($bindingKey, $bindingValue, $paramType);
+    }
     $statement->bindValue(':limit', $perPage, PDO::PARAM_INT);
     $statement->bindValue(':offset', $offset, PDO::PARAM_INT);
     $statement->execute();
@@ -356,7 +460,20 @@ function loadEntriesPage(PDO $pdo, int $page, int $perPage): array
             'page' => $safePage,
             'per_page' => $perPage,
             'total_entries' => $totalEntries,
+            'total_all_entries' => $totalAllEntries,
             'total_pages' => $totalPages,
+        ],
+        'filters' => [
+            'search' => $normalizedFilters['search'],
+            'medicine_id' => $normalizedFilters['medicine_id'],
+            'rating' => $normalizedFilters['rating'],
+            'from_date' => $normalizedFilters['from_date'],
+            'to_date' => $normalizedFilters['to_date'],
+            'active' => $normalizedFilters['search'] !== ''
+                || $normalizedFilters['medicine_id'] !== null
+                || $normalizedFilters['rating'] !== null
+                || $normalizedFilters['from_date'] !== null
+                || $normalizedFilters['to_date'] !== null,
         ],
     ];
 }
@@ -678,12 +795,20 @@ if ($apiAction !== '') {
 
         if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'entries') {
             $page = max(1, (int) ($_GET['page'] ?? 1));
-            $entriesPage = loadEntriesPage($pdo, $page, $perPage);
+            $entriesFilters = [
+                'search' => (string) ($_GET['search'] ?? ''),
+                'medicine_id' => (int) ($_GET['medicine_id'] ?? 0),
+                'rating' => (int) ($_GET['rating'] ?? 0),
+                'from_date' => (string) ($_GET['from_date'] ?? ''),
+                'to_date' => (string) ($_GET['to_date'] ?? ''),
+            ];
+            $entriesPage = loadEntriesPage($pdo, $page, $perPage, $entriesFilters);
 
             jsonResponse([
                 'ok' => true,
                 'entries' => $entriesPage['entries'],
                 'pagination' => $entriesPage['pagination'],
+                'filters' => $entriesPage['filters'],
             ]);
             exit;
         }
@@ -938,7 +1063,67 @@ $dbReady = $pdo instanceof PDO;
             <article class="card">
                 <div class="section-header">
                     <h2>Recent Entries</h2>
-                    <span id="table-meta" class="meta-text">Loading entries...</span>
+                    <div class="history-header-controls">
+                        <span id="table-meta" class="meta-text">Loading entries...</span>
+                        <button
+                            id="history-filter-toggle"
+                            type="button"
+                            class="ghost-btn history-toggle-btn"
+                            aria-controls="history-tools-panel"
+                            aria-expanded="false"
+                        >
+                            Show Filters
+                        </button>
+                    </div>
+                </div>
+
+                <div id="history-tools-panel" class="history-tools" hidden>
+                    <form id="history-filter-form" class="history-filter-form" novalidate>
+                        <div class="history-filter-grid">
+                            <div class="history-filter-field history-filter-search">
+                                <label for="filter_search">Search</label>
+                                <input id="filter_search" name="filter_search" type="search" placeholder="Search medicine or notes">
+                            </div>
+
+                            <div class="history-filter-field">
+                                <label for="filter_medicine_id">Medicine</label>
+                                <select id="filter_medicine_id" name="filter_medicine_id">
+                                    <option value="">All medicines</option>
+                                </select>
+                            </div>
+
+                            <div class="history-filter-field">
+                                <label for="filter_rating">Rating</label>
+                                <select id="filter_rating" name="filter_rating">
+                                    <option value="">All ratings</option>
+                                    <option value="5">5 ★</option>
+                                    <option value="4">4 ★</option>
+                                    <option value="3">3 ★</option>
+                                    <option value="2">2 ★</option>
+                                    <option value="1">1 ★</option>
+                                </select>
+                            </div>
+
+                            <div class="history-filter-field">
+                                <label for="filter_from_date">From</label>
+                                <input id="filter_from_date" name="filter_from_date" type="date">
+                            </div>
+
+                            <div class="history-filter-field">
+                                <label for="filter_to_date">To</label>
+                                <input id="filter_to_date" name="filter_to_date" type="date">
+                            </div>
+                        </div>
+
+                        <div class="history-filter-actions">
+                            <button class="ghost-btn" type="submit">Apply Filters</button>
+                            <button id="history-filter-clear" class="ghost-btn" type="button">Clear</button>
+                            <button id="history-filter-last7" class="ghost-btn" type="button">Last 7 Days</button>
+                            <button id="history-filter-last30" class="ghost-btn" type="button">Last 30 Days</button>
+                        </div>
+                    </form>
+
+                    <p id="history-filter-summary" class="meta-text">No filters applied.</p>
                 </div>
 
                 <div class="table-wrap">

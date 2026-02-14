@@ -21,6 +21,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const entriesBody = document.getElementById("entries-body");
   const tableMeta = document.getElementById("table-meta");
   const pagination = document.getElementById("pagination");
+  const historyFilterForm = document.getElementById("history-filter-form");
+  const historyFilterSummary = document.getElementById("history-filter-summary");
+  const filterSearchInput = document.getElementById("filter_search");
+  const filterMedicineSelect = document.getElementById("filter_medicine_id");
+  const filterRatingSelect = document.getElementById("filter_rating");
+  const filterFromDateInput = document.getElementById("filter_from_date");
+  const filterToDateInput = document.getElementById("filter_to_date");
+  const historyFilterClearButton = document.getElementById("history-filter-clear");
+  const historyFilterLast7Button = document.getElementById("history-filter-last7");
+  const historyFilterLast30Button = document.getElementById("history-filter-last30");
+  const historyFilterToggleButton = document.getElementById("history-filter-toggle");
+  const historyToolsPanel = document.getElementById("history-tools-panel");
 
   const modal = document.getElementById("edit-modal");
   const editForm = document.getElementById("edit-intake-form");
@@ -50,6 +62,13 @@ document.addEventListener("DOMContentLoaded", () => {
   let bannerTimer = null;
   let medicines = [];
   let mostRecentMedicine = null;
+  let currentFilters = {
+    search: "",
+    medicine_id: "",
+    rating: "",
+    from_date: "",
+    to_date: "",
+  };
   const entriesById = new Map();
 
   function buildApiUrl(action, params = {}) {
@@ -105,6 +124,173 @@ document.addEventListener("DOMContentLoaded", () => {
       .slice(0, 16);
   }
 
+  function localDateInputValue(date) {
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 10);
+  }
+
+  function normalizeDateValue(value) {
+    const text = String(value || "").trim();
+    return /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(text) ? text : "";
+  }
+
+  function normalizeFilterState(rawFilters = {}) {
+    const search = String(rawFilters.search || "").trim().slice(0, 120);
+
+    const medicineNumeric = Number(rawFilters.medicine_id);
+    const medicineId =
+      Number.isInteger(medicineNumeric) && medicineNumeric > 0
+        ? String(medicineNumeric)
+        : "";
+
+    const ratingNumeric = Number(rawFilters.rating);
+    const rating =
+      Number.isInteger(ratingNumeric) && ratingNumeric >= 1 && ratingNumeric <= 5
+        ? String(ratingNumeric)
+        : "";
+
+    const fromDate = normalizeDateValue(rawFilters.from_date);
+    const toDate = normalizeDateValue(rawFilters.to_date);
+
+    if (fromDate && toDate && fromDate > toDate) {
+      return {
+        search,
+        medicine_id: medicineId,
+        rating,
+        from_date: toDate,
+        to_date: fromDate,
+      };
+    }
+
+    return {
+      search,
+      medicine_id: medicineId,
+      rating,
+      from_date: fromDate,
+      to_date: toDate,
+    };
+  }
+
+  function hasActiveFilters(filters) {
+    return Boolean(
+      filters.search ||
+        filters.medicine_id ||
+        filters.rating ||
+        filters.from_date ||
+        filters.to_date
+    );
+  }
+
+  function collectFiltersFromControls() {
+    return normalizeFilterState({
+      search: filterSearchInput?.value || "",
+      medicine_id: filterMedicineSelect?.value || "",
+      rating: filterRatingSelect?.value || "",
+      from_date: filterFromDateInput?.value || "",
+      to_date: filterToDateInput?.value || "",
+    });
+  }
+
+  function applyFiltersToControls(filters) {
+    if (filterSearchInput) {
+      filterSearchInput.value = filters.search;
+    }
+    if (filterMedicineSelect) {
+      filterMedicineSelect.value = filters.medicine_id;
+    }
+    if (filterRatingSelect) {
+      filterRatingSelect.value = filters.rating;
+    }
+    if (filterFromDateInput) {
+      filterFromDateInput.value = filters.from_date;
+    }
+    if (filterToDateInput) {
+      filterToDateInput.value = filters.to_date;
+    }
+  }
+
+  function buildEntriesQueryParams(page) {
+    const params = { page };
+    if (currentFilters.search) {
+      params.search = currentFilters.search;
+    }
+    if (currentFilters.medicine_id) {
+      params.medicine_id = currentFilters.medicine_id;
+    }
+    if (currentFilters.rating) {
+      params.rating = currentFilters.rating;
+    }
+    if (currentFilters.from_date) {
+      params.from_date = currentFilters.from_date;
+    }
+    if (currentFilters.to_date) {
+      params.to_date = currentFilters.to_date;
+    }
+
+    return params;
+  }
+
+  function updateHistoryFilterSummary(totalEntries = null, totalAllEntries = null) {
+    if (!historyFilterSummary) {
+      return;
+    }
+
+    if (!hasActiveFilters(currentFilters)) {
+      historyFilterSummary.textContent = "No filters applied.";
+      return;
+    }
+
+    const parts = [];
+
+    if (currentFilters.search) {
+      parts.push(`Search: "${currentFilters.search}"`);
+    }
+    if (currentFilters.medicine_id) {
+      const selectedMedicine = medicines.find(
+        (item) => String(item.id) === currentFilters.medicine_id
+      );
+      if (selectedMedicine) {
+        parts.push(`Medicine: ${selectedMedicine.name}`);
+      }
+    }
+    if (currentFilters.rating) {
+      parts.push(`Rating: ${currentFilters.rating}★`);
+    }
+    if (currentFilters.from_date) {
+      parts.push(`From: ${currentFilters.from_date}`);
+    }
+    if (currentFilters.to_date) {
+      parts.push(`To: ${currentFilters.to_date}`);
+    }
+
+    if (
+      Number.isInteger(totalEntries) &&
+      Number.isInteger(totalAllEntries) &&
+      totalAllEntries >= totalEntries
+    ) {
+      parts.push(`${totalEntries} matching of ${totalAllEntries} total`);
+    }
+
+    historyFilterSummary.textContent = parts.join(" | ");
+  }
+
+  async function applyQuickDateRange(days) {
+    const safeDays = Math.max(1, Number(days) || 1);
+    const toDate = new Date();
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() - (safeDays - 1));
+
+    currentFilters = normalizeFilterState({
+      ...currentFilters,
+      from_date: localDateInputValue(fromDate),
+      to_date: localDateInputValue(toDate),
+    });
+    applyFiltersToControls(currentFilters);
+
+    await loadEntries(1);
+  }
+
   function showStatus(message, tone = "success") {
     if (!statusBanner) {
       return;
@@ -125,6 +311,24 @@ document.addEventListener("DOMContentLoaded", () => {
     }, 3200);
   }
 
+  function setHistoryFiltersVisible(isVisible) {
+    const shouldShow = Boolean(isVisible);
+
+    if (historyToolsPanel) {
+      historyToolsPanel.hidden = !shouldShow;
+    }
+
+    if (historyFilterToggleButton) {
+      historyFilterToggleButton.textContent = shouldShow
+        ? "Hide Filters"
+        : "Show Filters";
+      historyFilterToggleButton.setAttribute(
+        "aria-expanded",
+        shouldShow ? "true" : "false"
+      );
+    }
+  }
+
   function escapeText(value) {
     return value == null || value === "" ? "-" : String(value);
   }
@@ -136,6 +340,63 @@ document.addEventListener("DOMContentLoaded", () => {
       cell.className = className;
     }
     return cell;
+  }
+
+  function formatDosageNumber(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return null;
+    }
+
+    return numeric.toFixed(2).replace(/\.?0+$/, "");
+  }
+
+  function summarizeGroupDosage(entries) {
+    const totalsByUnit = new Map();
+
+    entries.forEach((entry) => {
+      const unit = String(entry?.dosage_unit || "")
+        .trim()
+        .toLowerCase();
+      const dosageValue = Number(entry?.dosage_value);
+
+      if (!unit || !Number.isFinite(dosageValue)) {
+        return;
+      }
+
+      totalsByUnit.set(unit, (totalsByUnit.get(unit) || 0) + dosageValue);
+    });
+
+    if (totalsByUnit.size === 0) {
+      return "";
+    }
+
+    const orderedTotals = Array.from(totalsByUnit.entries()).sort(
+      ([leftUnit], [rightUnit]) => {
+        if (leftUnit === "mg" && rightUnit !== "mg") {
+          return -1;
+        }
+        if (rightUnit === "mg" && leftUnit !== "mg") {
+          return 1;
+        }
+
+        return leftUnit.localeCompare(rightUnit);
+      }
+    );
+
+    const renderedTotals = orderedTotals
+      .map(([unit, total]) => {
+        const formatted = formatDosageNumber(total);
+        return formatted ? `${formatted} ${unit}` : null;
+      })
+      .filter(Boolean);
+
+    if (renderedTotals.length === 0) {
+      return "";
+    }
+
+    const label = renderedTotals.length === 1 ? "Total" : "Totals";
+    return ` | ${label}: ${renderedTotals.join(", ")}`;
   }
 
   function clearEntriesTable(message) {
@@ -162,7 +423,9 @@ document.addEventListener("DOMContentLoaded", () => {
     entriesBody.innerHTML = "";
 
     if (!entries.length) {
-      clearEntriesTable("No entries yet.");
+      clearEntriesTable(
+        hasActiveFilters(currentFilters) ? "No matching entries." : "No entries yet."
+      );
       return;
     }
 
@@ -192,7 +455,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const dayCell = document.createElement("td");
         dayCell.colSpan = 6;
         const intakeLabel = group.entries.length === 1 ? "intake" : "intakes";
-        dayCell.textContent = `${group.dayLabel} (${group.entries.length} ${intakeLabel})`;
+        const dosageSummary = summarizeGroupDosage(group.entries);
+        dayCell.textContent = `${group.dayLabel} (${group.entries.length} ${intakeLabel})${dosageSummary}`;
         dayRow.appendChild(dayCell);
         entriesBody.appendChild(dayRow);
       }
@@ -477,6 +741,30 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function populateFilterMedicineSelect() {
+    if (!filterMedicineSelect) {
+      return;
+    }
+
+    const selectedMedicineId = currentFilters.medicine_id;
+    filterMedicineSelect.innerHTML = "";
+    filterMedicineSelect.add(new Option("All medicines", ""));
+
+    medicines.forEach((medicine) => {
+      filterMedicineSelect.add(new Option(medicine.name, String(medicine.id)));
+    });
+
+    if (
+      selectedMedicineId &&
+      medicines.some((item) => String(item.id) === selectedMedicineId)
+    ) {
+      filterMedicineSelect.value = selectedMedicineId;
+    } else {
+      filterMedicineSelect.value = "";
+      currentFilters.medicine_id = "";
+    }
+  }
+
   function syncMedicineContext(context, preferred = null) {
     const picker = context.picker;
     const select = context.select;
@@ -557,8 +845,10 @@ document.addEventListener("DOMContentLoaded", () => {
           .filter((item) => item.id > 0 && item.name !== "")
       : [];
 
+    populateFilterMedicineSelect();
     syncMedicineContext(createMedicineContext, createCurrent);
     syncMedicineContext(editMedicineContext, editCurrent);
+    updateHistoryFilterSummary();
   }
 
   async function loadMetrics() {
@@ -575,10 +865,16 @@ document.addEventListener("DOMContentLoaded", () => {
   async function loadEntries(page = 1, options = {}) {
     const shouldSyncCreateDefault = options.syncCreateDefault === true;
     const payload = await apiRequest("entries", {
-      params: {
-        page,
-      },
+      params: buildEntriesQueryParams(page),
     });
+
+    if (payload.filters) {
+      currentFilters = normalizeFilterState(payload.filters);
+      applyFiltersToControls(currentFilters);
+      if (payload.filters.active === true && historyToolsPanel?.hidden) {
+        setHistoryFiltersVisible(true);
+      }
+    }
 
     const paginationData = payload.pagination;
     currentPage = paginationData.page;
@@ -604,7 +900,20 @@ document.addEventListener("DOMContentLoaded", () => {
     renderEntries(payload.entries);
 
     if (tableMeta) {
-      tableMeta.textContent = `Page ${paginationData.page} of ${paginationData.total_pages} | ${paginationData.total_entries} total entries`;
+      const filteredTotal = Number(paginationData.total_entries || 0);
+      const overallTotal = Number(
+        paginationData.total_all_entries ?? paginationData.total_entries ?? 0
+      );
+      const filtersAreActive =
+        payload.filters?.active === true || hasActiveFilters(currentFilters);
+
+      if (filtersAreActive && overallTotal >= filteredTotal) {
+        tableMeta.textContent = `Page ${paginationData.page} of ${paginationData.total_pages} | ${filteredTotal} matching entries (${overallTotal} total)`;
+      } else {
+        tableMeta.textContent = `Page ${paginationData.page} of ${paginationData.total_pages} | ${filteredTotal} total entries`;
+      }
+
+      updateHistoryFilterSummary(filteredTotal, overallTotal);
     }
 
     renderPagination();
@@ -697,6 +1006,54 @@ document.addEventListener("DOMContentLoaded", () => {
   } else {
     setRating(editRating, editRatingWidget, editRating?.value || 3);
   }
+
+  currentFilters = normalizeFilterState(currentFilters);
+  applyFiltersToControls(currentFilters);
+  updateHistoryFilterSummary();
+  setHistoryFiltersVisible(hasActiveFilters(currentFilters));
+
+  historyFilterToggleButton?.addEventListener("click", () => {
+    const currentlyVisible = historyToolsPanel ? !historyToolsPanel.hidden : false;
+    setHistoryFiltersVisible(!currentlyVisible);
+  });
+
+  historyFilterForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    currentFilters = collectFiltersFromControls();
+
+    try {
+      await loadEntries(1);
+    } catch (error) {
+      showStatus(error.message, "error");
+    }
+  });
+
+  historyFilterClearButton?.addEventListener("click", async () => {
+    currentFilters = normalizeFilterState({});
+    applyFiltersToControls(currentFilters);
+
+    try {
+      await loadEntries(1);
+    } catch (error) {
+      showStatus(error.message, "error");
+    }
+  });
+
+  historyFilterLast7Button?.addEventListener("click", async () => {
+    try {
+      await applyQuickDateRange(7);
+    } catch (error) {
+      showStatus(error.message, "error");
+    }
+  });
+
+  historyFilterLast30Button?.addEventListener("click", async () => {
+    try {
+      await applyQuickDateRange(30);
+    } catch (error) {
+      showStatus(error.message, "error");
+    }
+  });
 
   createForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
