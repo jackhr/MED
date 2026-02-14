@@ -12,6 +12,7 @@ Simple PHP + MySQL website for logging medicine intake.
 - Paginated entries table (10 entries per page)
 - Dashboard metrics: entries today, entries this week, average rating this week
 - Separate trends page (`trends.php`) with chart + table views (monthly, weekly, weekday, top medicines)
+- Separate calendar page (`calendar.php`) with monthly day-by-day intake view
 - Uses `.env` for database and app configuration
 
 ## Project Structure
@@ -20,9 +21,11 @@ medicine-log/
   public/
     assets/
       app.js
+      calendar.js
       trends.js
       style.css
     index.php
+    calendar.php
     trends.php
   sql/
     init.sql

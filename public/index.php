@@ -510,6 +510,102 @@ function loadTrends(PDO $pdo): array
     ];
 }
 
+function parseCalendarMonth(string $monthInput): DateTimeImmutable
+{
+    $cleanMonth = trim($monthInput);
+    if (preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $cleanMonth) === 1) {
+        $parsedMonth = DateTimeImmutable::createFromFormat('!Y-m', $cleanMonth);
+        $errors = DateTimeImmutable::getLastErrors();
+        $hasParseErrors = is_array($errors)
+            && (($errors['warning_count'] ?? 0) > 0 || ($errors['error_count'] ?? 0) > 0);
+
+        if (
+            $parsedMonth instanceof DateTimeImmutable
+            && !$hasParseErrors
+        ) {
+            return $parsedMonth->setTime(0, 0, 0);
+        }
+    }
+
+    return new DateTimeImmutable('first day of this month 00:00:00');
+}
+
+function loadCalendarMonth(PDO $pdo, string $monthInput): array
+{
+    $monthStart = parseCalendarMonth($monthInput);
+    $monthEnd = $monthStart->modify('+1 month');
+
+    $statement = $pdo->prepare(
+        'SELECT l.id,
+                l.medicine_id,
+                m.name AS medicine_name,
+                l.dosage_value,
+                l.dosage_unit,
+                l.rating,
+                l.taken_at,
+                l.notes,
+                l.created_at
+         FROM medicine_intake_logs l
+         INNER JOIN medicines m ON m.id = l.medicine_id
+         WHERE l.taken_at >= :start_date
+           AND l.taken_at < :end_date
+         ORDER BY l.taken_at ASC, l.id ASC'
+    );
+    $statement->execute([
+        ':start_date' => $monthStart->format('Y-m-d H:i:s'),
+        ':end_date' => $monthEnd->format('Y-m-d H:i:s'),
+    ]);
+    $rows = $statement->fetchAll();
+
+    $daysByDate = [];
+    foreach ($rows as $row) {
+        $entry = serializeEntry($row);
+        $dayKey = (string) ($entry['taken_day_key'] ?? '');
+        if ($dayKey === '') {
+            continue;
+        }
+
+        if (!isset($daysByDate[$dayKey])) {
+            $daysByDate[$dayKey] = [
+                'date' => $dayKey,
+                'day' => (int) substr($dayKey, 8, 2),
+                'entry_count' => 0,
+                'avg_rating' => null,
+                'entries' => [],
+                '_rating_sum' => 0,
+            ];
+        }
+
+        $daysByDate[$dayKey]['entries'][] = $entry;
+        $daysByDate[$dayKey]['entry_count'] += 1;
+        $daysByDate[$dayKey]['_rating_sum'] += (int) ($entry['rating'] ?? 0);
+    }
+
+    foreach ($daysByDate as $dayKey => $dayData) {
+        $entryCount = (int) $dayData['entry_count'];
+        $ratingSum = (int) $dayData['_rating_sum'];
+        $daysByDate[$dayKey]['avg_rating'] = $entryCount > 0
+            ? round($ratingSum / $entryCount, 2)
+            : null;
+        unset($daysByDate[$dayKey]['_rating_sum']);
+    }
+
+    ksort($daysByDate);
+
+    return [
+        'month' => $monthStart->format('Y-m'),
+        'month_label' => $monthStart->format('F Y'),
+        'year' => (int) $monthStart->format('Y'),
+        'month_number' => (int) $monthStart->format('n'),
+        'first_weekday' => (int) $monthStart->format('w'),
+        'days_in_month' => (int) $monthStart->format('t'),
+        'today' => (new DateTimeImmutable('now'))->format('Y-m-d'),
+        'prev_month' => $monthStart->modify('-1 month')->format('Y-m'),
+        'next_month' => $monthStart->modify('+1 month')->format('Y-m'),
+        'days' => array_values($daysByDate),
+    ];
+}
+
 function loadMedicineOptions(PDO $pdo): array
 {
     $statement = $pdo->query(
@@ -559,6 +655,15 @@ if ($apiAction !== '') {
             jsonResponse([
                 'ok' => true,
                 'trends' => loadTrends($pdo),
+            ]);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'calendar') {
+            $monthInput = (string) ($_GET['month'] ?? '');
+            jsonResponse([
+                'ok' => true,
+                'calendar' => loadCalendarMonth($pdo, $monthInput),
             ]);
             exit;
         }
@@ -752,6 +857,7 @@ $dbReady = $pdo instanceof PDO;
             <p>Monitor progress, log doses quickly, and edit records in place.</p>
             <div class="hero-actions">
                 <a class="ghost-btn nav-link" href="trends.php">View Trends</a>
+                <a class="ghost-btn nav-link" href="calendar.php">View Calendar</a>
             </div>
         </header>
 

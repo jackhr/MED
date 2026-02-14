@@ -158,6 +158,207 @@ body.modal-open {
     align-items          : start;
 }
 
+.calendar-controls {
+    display              : grid;
+    grid-template-columns: minmax(0, 1fr) 220px;
+    align-items          : center;
+    gap                  : 0.8rem;
+}
+
+.calendar-nav {
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    gap            : 0.65rem;
+    flex-wrap      : wrap;
+}
+
+.calendar-nav h2 {
+    margin   : 0;
+    min-width: 210px;
+    text-align: center;
+}
+
+.calendar-month-picker-wrap {
+    display: grid;
+    gap    : 0.32rem;
+}
+
+.calendar-month-picker-wrap label {
+    font-size  : 0.86rem;
+    color      : var(--muted);
+    font-weight: 700;
+}
+
+.calendar-layout {
+    display              : grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap                  : 0.95rem;
+    align-items          : start;
+}
+
+.calendar-scroll {
+    overflow-x: auto;
+}
+
+.calendar-weekdays,
+.calendar-grid {
+    min-width            : 760px;
+    display              : grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap                  : 0.48rem;
+}
+
+.calendar-weekdays {
+    margin-bottom: 0.44rem;
+}
+
+.calendar-weekdays span {
+    border-radius: 8px;
+    border       : 1px solid #d7e7e4;
+    background   : #f3faf8;
+    text-align   : center;
+    font-size    : 0.82rem;
+    color        : #48605c;
+    font-weight  : 700;
+    padding      : 0.35rem;
+    letter-spacing: 0.02em;
+}
+
+.calendar-cell {
+    border       : 1px solid #d6e5e2;
+    border-radius: 10px;
+    background   : #fcfffe;
+    min-height   : 128px;
+    padding      : 0.5rem 0.48rem;
+    display      : grid;
+    align-content: start;
+    gap          : 0.32rem;
+    text-align   : left;
+    cursor       : pointer;
+}
+
+.calendar-cell:hover {
+    border-color: #9fc8c1;
+    background  : #f7fcfb;
+}
+
+.calendar-cell.is-empty {
+    background: #f7fbfa;
+    border-style: dashed;
+    cursor: default;
+}
+
+.calendar-cell.is-active {
+    border-color: #93c6be;
+    background  : #f2fbf8;
+}
+
+.calendar-cell.is-selected {
+    border-color: #0b7a6e;
+    box-shadow  : 0 0 0 2px rgb(11 122 110 / 18%);
+}
+
+.calendar-cell.is-today .calendar-day-number {
+    background: #0b7a6e;
+    color     : #fff;
+}
+
+.calendar-cell-head {
+    display        : flex;
+    align-items    : center;
+    justify-content: space-between;
+    gap            : 0.32rem;
+}
+
+.calendar-day-number {
+    display      : inline-flex;
+    align-items  : center;
+    justify-content: center;
+    min-width    : 1.8rem;
+    height       : 1.8rem;
+    border-radius: 999px;
+    border       : 1px solid #cee2de;
+    font-weight  : 700;
+    color        : #2d4a46;
+    background   : #fff;
+}
+
+.calendar-day-count {
+    font-size    : 0.76rem;
+    font-weight  : 700;
+    border-radius: 999px;
+    padding      : 0.18rem 0.48rem;
+    color        : #0f5c53;
+    background   : #ddf3ef;
+}
+
+.calendar-entry-pill,
+.calendar-more {
+    margin        : 0;
+    border-radius : 7px;
+    padding       : 0.26rem 0.4rem;
+    font-size     : 0.76rem;
+    line-height   : 1.3;
+    overflow      : hidden;
+    text-overflow : ellipsis;
+    white-space   : nowrap;
+}
+
+.calendar-entry-pill {
+    background: #eaf6f3;
+    color     : #244a45;
+}
+
+.calendar-more {
+    background: #f6faf9;
+    color     : #4f6763;
+    font-style: italic;
+}
+
+.calendar-empty-text {
+    margin    : 0;
+    color     : var(--muted);
+    padding   : 0.34rem;
+    font-size : 0.9rem;
+}
+
+.day-details-card {
+    min-height: 420px;
+}
+
+.day-entry-list {
+    margin    : 0.8rem 0 0;
+    padding   : 0;
+    list-style: none;
+    display   : grid;
+    gap       : 0.55rem;
+}
+
+.day-entry-item {
+    border       : 1px solid #d7e7e4;
+    border-radius: 9px;
+    background   : #f8fcfb;
+    padding      : 0.5rem 0.58rem;
+}
+
+.day-entry-item.is-empty {
+    color: var(--muted);
+}
+
+.day-entry-title {
+    margin     : 0;
+    font-weight: 700;
+    color      : #244642;
+    font-size  : 0.9rem;
+}
+
+.day-entry-meta {
+    margin   : 0.22rem 0 0;
+    color    : #516965;
+    font-size: 0.82rem;
+}
+
 .chart-shell {
     margin-top   : 0.55rem;
     border       : 1px solid #d4e6e2;
@@ -595,6 +796,14 @@ th {
 
 @media (max-width: 960px) {
     .workspace-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .calendar-controls {
+        grid-template-columns: 1fr;
+    }
+
+    .calendar-layout {
         grid-template-columns: 1fr;
     }
 

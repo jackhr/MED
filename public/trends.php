@@ -45,6 +45,7 @@ $dbReady = $pdo instanceof PDO;
             <p>Long-term patterns and summaries to help spot progress over time.</p>
             <div class="hero-actions">
                 <a class="ghost-btn nav-link" href="index.php">Back To Dashboard</a>
+                <a class="ghost-btn nav-link" href="calendar.php">View Calendar</a>
             </div>
         </header>
 
