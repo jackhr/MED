@@ -369,14 +369,144 @@ function loadMetrics(PDO $pdo): array
     $entriesThisWeek = (int) $pdo
         ->query('SELECT COUNT(*) FROM medicine_intake_logs WHERE YEARWEEK(taken_at, 1) = YEARWEEK(CURDATE(), 1)')
         ->fetchColumn();
-    $totalMedicines = (int) $pdo
-        ->query('SELECT COUNT(*) FROM medicines')
+    $avgRatingThisWeekRaw = $pdo
+        ->query('SELECT AVG(rating) FROM medicine_intake_logs WHERE YEARWEEK(taken_at, 1) = YEARWEEK(CURDATE(), 1)')
         ->fetchColumn();
+    $avgRatingThisWeek = $avgRatingThisWeekRaw !== null ? round((float) $avgRatingThisWeekRaw, 2) : null;
 
     return [
         'entries_today' => $entriesToday,
         'entries_this_week' => $entriesThisWeek,
-        'unique_medicines' => $totalMedicines,
+        'average_rating_this_week' => $avgRatingThisWeek,
+    ];
+}
+
+function loadTrends(PDO $pdo): array
+{
+    $summaryStatement = $pdo->query(
+        'SELECT SUM(CASE WHEN taken_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) THEN 1 ELSE 0 END) AS entries_last_30_days,
+                COUNT(DISTINCT CASE WHEN taken_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) THEN DATE(taken_at) END) AS active_days_last_30_days,
+                AVG(CASE WHEN YEARWEEK(taken_at, 1) = YEARWEEK(CURDATE(), 1) THEN rating END) AS avg_rating_this_week,
+                AVG(CASE WHEN taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY) THEN rating END) AS avg_rating_last_90_days
+         FROM medicine_intake_logs
+         WHERE taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)'
+    );
+    $summaryRow = $summaryStatement->fetch();
+    $entriesLast30Days = (int) ($summaryRow['entries_last_30_days'] ?? 0);
+    $activeDaysLast30Days = (int) ($summaryRow['active_days_last_30_days'] ?? 0);
+    $avgRatingThisWeek = isset($summaryRow['avg_rating_this_week']) && $summaryRow['avg_rating_this_week'] !== null
+        ? round((float) $summaryRow['avg_rating_this_week'], 2)
+        : null;
+    $avgRatingLast90Days = isset($summaryRow['avg_rating_last_90_days']) && $summaryRow['avg_rating_last_90_days'] !== null
+        ? round((float) $summaryRow['avg_rating_last_90_days'], 2)
+        : null;
+
+    $monthlyStatement = $pdo->query(
+        'SELECT DATE_FORMAT(MIN(taken_at), "%b %Y") AS label,
+                AVG(rating) AS avg_rating,
+                COUNT(*) AS entries
+         FROM medicine_intake_logs
+         WHERE taken_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+         GROUP BY YEAR(taken_at), MONTH(taken_at)
+         ORDER BY MIN(taken_at)'
+    );
+    $monthlyRows = $monthlyStatement->fetchAll();
+    $monthlyAverageRating = array_values(array_map(
+        static fn(array $row): array => [
+            'label' => (string) ($row['label'] ?? ''),
+            'avg_rating' => isset($row['avg_rating']) && $row['avg_rating'] !== null
+                ? round((float) $row['avg_rating'], 2)
+                : null,
+            'entries' => (int) ($row['entries'] ?? 0),
+        ],
+        $monthlyRows
+    ));
+
+    $weeklyStatement = $pdo->query(
+        'SELECT MIN(DATE(taken_at)) AS week_start,
+                COUNT(*) AS entries,
+                AVG(rating) AS avg_rating
+         FROM medicine_intake_logs
+         WHERE taken_at >= DATE_SUB(CURDATE(), INTERVAL 12 WEEK)
+         GROUP BY YEARWEEK(taken_at, 1)
+         ORDER BY YEARWEEK(taken_at, 1)'
+    );
+    $weeklyRows = $weeklyStatement->fetchAll();
+    $weeklyEntries = array_values(array_map(
+        static fn(array $row): array => [
+            'label' => isset($row['week_start']) && $row['week_start'] !== null
+                ? ('Week of ' . formatDateOnly((string) $row['week_start']))
+                : 'Unknown',
+            'entries' => (int) ($row['entries'] ?? 0),
+            'avg_rating' => isset($row['avg_rating']) && $row['avg_rating'] !== null
+                ? round((float) $row['avg_rating'], 2)
+                : null,
+        ],
+        $weeklyRows
+    ));
+
+    $topMedicinesStatement = $pdo->query(
+        'SELECT m.name AS medicine_name,
+                COUNT(*) AS entries,
+                AVG(l.rating) AS avg_rating
+         FROM medicine_intake_logs l
+         INNER JOIN medicines m ON m.id = l.medicine_id
+         WHERE l.taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+         GROUP BY l.medicine_id, m.name
+         ORDER BY entries DESC, m.name ASC
+         LIMIT 5'
+    );
+    $topMedicinesRows = $topMedicinesStatement->fetchAll();
+    $topMedicines = array_values(array_map(
+        static fn(array $row): array => [
+            'medicine_name' => (string) ($row['medicine_name'] ?? ''),
+            'entries' => (int) ($row['entries'] ?? 0),
+            'avg_rating' => isset($row['avg_rating']) && $row['avg_rating'] !== null
+                ? round((float) $row['avg_rating'], 2)
+                : null,
+        ],
+        $topMedicinesRows
+    ));
+
+    $weekdayStatement = $pdo->query(
+        'SELECT WEEKDAY(taken_at) AS weekday_index,
+                COUNT(*) AS entries,
+                AVG(rating) AS avg_rating
+         FROM medicine_intake_logs
+         WHERE taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+         GROUP BY WEEKDAY(taken_at)
+         ORDER BY WEEKDAY(taken_at)'
+    );
+    $weekdayRows = $weekdayStatement->fetchAll();
+    $weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    $weekdayPatterns = [];
+    foreach ($weekdayRows as $row) {
+        $weekdayIndex = (int) ($row['weekday_index'] ?? -1);
+        if (!isset($weekdayNames[$weekdayIndex])) {
+            continue;
+        }
+
+        $weekdayPatterns[] = [
+            'label' => $weekdayNames[$weekdayIndex],
+            'entries' => (int) ($row['entries'] ?? 0),
+            'avg_rating' => isset($row['avg_rating']) && $row['avg_rating'] !== null
+                ? round((float) $row['avg_rating'], 2)
+                : null,
+        ];
+    }
+
+    return [
+        'summary' => [
+            'entries_last_30_days' => $entriesLast30Days,
+            'active_days_last_30_days' => $activeDaysLast30Days,
+            'active_day_ratio_last_30_days' => round(($activeDaysLast30Days / 30) * 100, 1),
+            'avg_rating_this_week' => $avgRatingThisWeek,
+            'avg_rating_last_90_days' => $avgRatingLast90Days,
+        ],
+        'monthly_average_rating' => $monthlyAverageRating,
+        'weekly_entries' => $weeklyEntries,
+        'top_medicines_90_days' => $topMedicines,
+        'weekday_patterns_90_days' => $weekdayPatterns,
     ];
 }
 
@@ -421,6 +551,14 @@ if ($apiAction !== '') {
             jsonResponse([
                 'ok' => true,
                 'metrics' => loadMetrics($pdo),
+            ]);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'trends') {
+            jsonResponse([
+                'ok' => true,
+                'trends' => loadTrends($pdo),
             ]);
             exit;
         }
@@ -612,6 +750,9 @@ $dbReady = $pdo instanceof PDO;
             <p class="eyebrow">Medicine Tracker</p>
             <h1>Daily Intake Dashboard</h1>
             <p>Monitor progress, log doses quickly, and edit records in place.</p>
+            <div class="hero-actions">
+                <a class="ghost-btn nav-link" href="trends.php">View Trends</a>
+            </div>
         </header>
 
         <?php if ($dbError !== null): ?>
@@ -632,8 +773,8 @@ $dbReady = $pdo instanceof PDO;
                 <p id="metric-week" class="metric-value">--</p>
             </article>
             <article class="metric-card">
-                <p class="metric-label">Medicine Types</p>
-                <p id="metric-medicines" class="metric-value">--</p>
+                <p class="metric-label">Avg Rating This Week</p>
+                <p id="metric-rating-week" class="metric-value">--</p>
             </article>
         </section>
 

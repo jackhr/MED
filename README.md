@@ -10,7 +10,8 @@ Simple PHP + MySQL website for logging medicine intake.
 - Dosage as numeric amount + unit (`mg`, `ml`, etc.), defaulting to `20 mg`
 - Interactive `rating` tags with 5 hover/click stars
 - Paginated entries table (10 entries per page)
-- Metrics: entries today, entries this week, unique medicines
+- Dashboard metrics: entries today, entries this week, average rating this week
+- Separate trends page (`trends.php`) with multi-period summaries (monthly, weekly, weekday, top medicines)
 - Uses `.env` for database and app configuration
 
 ## Project Structure
@@ -19,8 +20,10 @@ medicine-log/
   public/
     assets/
       app.js
+      trends.js
       style.css
     index.php
+    trends.php
   sql/
     init.sql
     migrations/

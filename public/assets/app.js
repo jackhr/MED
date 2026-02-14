@@ -8,7 +8,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const statusBanner = document.getElementById("status-banner");
   const metricToday = document.getElementById("metric-today");
   const metricWeek = document.getElementById("metric-week");
-  const metricMedicines = document.getElementById("metric-medicines");
+  const metricRatingWeek = document.getElementById("metric-rating-week");
 
   const createForm = document.getElementById("create-intake-form");
   const createSubmitButton = createForm?.querySelector("button[type='submit']");
@@ -291,6 +291,19 @@ document.addEventListener("DOMContentLoaded", () => {
     return Math.max(1, Math.min(5, Math.round(numeric)));
   }
 
+  function formatAverageRating(value) {
+    if (value === null || value === undefined || value === "") {
+      return "--";
+    }
+
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return "--";
+    }
+
+    return `${numeric.toFixed(2)} / 5`;
+  }
+
   function paintRatingWidget(widget, selected, preview = 0) {
     if (!widget) {
       return;
@@ -552,7 +565,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const payload = await apiRequest("dashboard");
     metricToday.textContent = String(payload.metrics.entries_today);
     metricWeek.textContent = String(payload.metrics.entries_this_week);
-    metricMedicines.textContent = String(payload.metrics.unique_medicines);
+    if (metricRatingWeek) {
+      metricRatingWeek.textContent = formatAverageRating(
+        payload.metrics.average_rating_this_week
+      );
+    }
   }
 
   async function loadEntries(page = 1, options = {}) {
