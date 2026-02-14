@@ -158,6 +158,103 @@ body.modal-open {
     align-items          : start;
 }
 
+.chart-shell {
+    margin-top   : 0.55rem;
+    border       : 1px solid #d4e6e2;
+    border-radius: 10px;
+    background   : linear-gradient(180deg, #ffffff 0%, #f7fcfb 100%);
+    padding      : 0.45rem 0.5rem 0.2rem;
+    min-height   : 258px;
+}
+
+.chart-empty {
+    margin : 0;
+    color  : var(--muted);
+    padding: 0.55rem;
+}
+
+.chart-svg {
+    width  : 100%;
+    height : auto;
+    display: block;
+}
+
+.chart-grid-line {
+    stroke      : #dcebe8;
+    stroke-width: 1;
+}
+
+.chart-axis-line {
+    stroke      : #95bbb3;
+    stroke-width: 1.2;
+}
+
+.chart-axis-label {
+    fill      : #5a6f6a;
+    font-size : 12px;
+    font-family: "Trebuchet MS", "Verdana", "Geneva", sans-serif;
+}
+
+.chart-line {
+    stroke          : #0b7a6e;
+    stroke-width    : 2.8;
+    fill            : none;
+    stroke-linecap  : round;
+    stroke-linejoin : round;
+}
+
+.chart-point {
+    fill  : #f6a53a;
+    stroke: #fff;
+    stroke-width: 2;
+}
+
+.chart-bar {
+    fill: #0f887b;
+}
+
+.bar-list {
+    display: grid;
+    gap    : 0.5rem;
+}
+
+.bar-row {
+    display: grid;
+    gap    : 0.24rem;
+}
+
+.bar-meta {
+    display        : flex;
+    justify-content: space-between;
+    align-items    : baseline;
+    gap            : 0.65rem;
+}
+
+.bar-label {
+    font-size  : 0.9rem;
+    font-weight: 700;
+    color      : #2a4541;
+}
+
+.bar-value {
+    font-size: 0.85rem;
+    color    : var(--muted);
+}
+
+.bar-track {
+    background   : #e7f2f0;
+    border-radius: 999px;
+    height       : 10px;
+    overflow     : hidden;
+}
+
+.bar-fill {
+    display      : block;
+    height       : 100%;
+    border-radius: inherit;
+    background   : linear-gradient(90deg, #0b7a6e 0%, #36aa99 100%);
+}
+
 h2 {
     margin: 0 0 0.8rem;
 }

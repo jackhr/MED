@@ -11,7 +11,7 @@ Simple PHP + MySQL website for logging medicine intake.
 - Interactive `rating` tags with 5 hover/click stars
 - Paginated entries table (10 entries per page)
 - Dashboard metrics: entries today, entries this week, average rating this week
-- Separate trends page (`trends.php`) with multi-period summaries (monthly, weekly, weekday, top medicines)
+- Separate trends page (`trends.php`) with chart + table views (monthly, weekly, weekday, top medicines)
 - Uses `.env` for database and app configuration
 
 ## Project Structure

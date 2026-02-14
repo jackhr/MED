@@ -75,6 +75,40 @@ $dbReady = $pdo instanceof PDO;
             </article>
         </section>
 
+        <section class="trends-grid trends-charts-grid" aria-label="Trend Charts">
+            <article class="card">
+                <h2>Monthly Rating Trend</h2>
+                <p class="meta-text">Average rating by month over the last 6 months.</p>
+                <div id="chart-monthly-rating" class="chart-shell">
+                    <p class="chart-empty">Loading chart...</p>
+                </div>
+            </article>
+
+            <article class="card">
+                <h2>Weekly Entry Trend</h2>
+                <p class="meta-text">Total logged intakes by week over the last 12 weeks.</p>
+                <div id="chart-weekly-entries" class="chart-shell">
+                    <p class="chart-empty">Loading chart...</p>
+                </div>
+            </article>
+
+            <article class="card">
+                <h2>Top Medicines Usage</h2>
+                <p class="meta-text">Relative medicine usage based on entries in the last 90 days.</p>
+                <div id="chart-top-medicines" class="chart-shell">
+                    <p class="chart-empty">Loading chart...</p>
+                </div>
+            </article>
+
+            <article class="card">
+                <h2>Weekday Intake Pattern</h2>
+                <p class="meta-text">Entry volume by weekday over the last 90 days.</p>
+                <div id="chart-weekday-pattern" class="chart-shell">
+                    <p class="chart-empty">Loading chart...</p>
+                </div>
+            </article>
+        </section>
+
         <section class="trends-grid">
             <article class="card">
                 <h2>Monthly Average Rating</h2>
