@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/src/Env.php';
 require_once dirname(__DIR__) . '/src/Database.php';
+require_once dirname(__DIR__) . '/src/Auth.php';
 
 Env::load(dirname(__DIR__) . '/.env');
 date_default_timezone_set(Env::get('APP_TIMEZONE', 'UTC') ?? 'UTC');
+Auth::startSession();
+Auth::requireAuthForPage('login.php');
 
 function e(string $value): string
 {
@@ -48,6 +51,7 @@ $initialMonth = (string) ($_GET['month'] ?? '');
             <div class="hero-actions">
                 <a class="ghost-btn nav-link" href="index.php">Back To Dashboard</a>
                 <a class="ghost-btn nav-link" href="trends.php">View Trends</a>
+                <a class="ghost-btn nav-link" href="logout.php">Log Out</a>
             </div>
         </header>
 

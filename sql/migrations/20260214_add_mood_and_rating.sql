@@ -1,8 +1,8 @@
 USE medicine_log;
 
 ALTER TABLE medicine_intake_logs
-    ADD COLUMN IF NOT EXISTS mood VARCHAR(20) NOT NULL DEFAULT 'neutral' AFTER dosage_unit,
-    ADD COLUMN IF NOT EXISTS rating TINYINT UNSIGNED NOT NULL DEFAULT 3 AFTER mood;
+    ADD COLUMN mood VARCHAR(20) NOT NULL DEFAULT 'neutral' AFTER dosage_unit,
+    ADD COLUMN rating TINYINT UNSIGNED NOT NULL DEFAULT 3 AFTER mood;
 
 UPDATE medicine_intake_logs
 SET mood = 'neutral'

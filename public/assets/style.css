@@ -38,6 +38,33 @@ body.modal-open {
     gap    : 1rem;
 }
 
+.auth-shell {
+    min-height: 100vh;
+    display   : grid;
+    place-items: center;
+    padding   : 1rem;
+}
+
+.auth-card {
+    width  : min(460px, 94vw);
+    display: grid;
+    gap    : 0.7rem;
+}
+
+.auth-card h1 {
+    margin   : 0.25rem 0 0.15rem;
+    font-size: clamp(1.6rem, 2vw + 0.8rem, 2.1rem);
+}
+
+.auth-subtitle {
+    margin: 0;
+    color : var(--muted);
+}
+
+.auth-form .primary-btn {
+    margin-top: 0.3rem;
+}
+
 .card {
     background   : var(--panel);
     border       : 1px solid var(--line);
@@ -84,6 +111,9 @@ body.modal-open {
 
 .hero-actions {
     margin-top: 0.9rem;
+    display   : flex;
+    gap       : 0.5rem;
+    flex-wrap : wrap;
 }
 
 .nav-link {

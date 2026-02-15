@@ -4,13 +4,22 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/src/Env.php';
 require_once dirname(__DIR__) . '/src/Database.php';
+require_once dirname(__DIR__) . '/src/Auth.php';
 
 Env::load(dirname(__DIR__) . '/.env');
 date_default_timezone_set(Env::get('APP_TIMEZONE', 'UTC') ?? 'UTC');
 
 $selfPath = (string) ($_SERVER['PHP_SELF'] ?? '/index.php');
+$apiAction = (string) ($_GET['api'] ?? '');
 $perPage = 10;
 $allowedDosageUnits = ['mg', 'ml', 'g', 'mcg', 'tablet', 'drop'];
+
+Auth::startSession();
+if ($apiAction !== '') {
+    Auth::requireAuthForApi();
+} else {
+    Auth::requireAuthForPage('login.php');
+}
 
 function e(string $value): string
 {
@@ -954,7 +963,6 @@ try {
     $dbError = $exception->getMessage();
 }
 
-$apiAction = (string) ($_GET['api'] ?? '');
 if ($apiAction !== '') {
     if (!$pdo instanceof PDO) {
         jsonResponse([
@@ -1210,6 +1218,7 @@ $dbReady = $pdo instanceof PDO;
             <div class="hero-actions">
                 <a class="ghost-btn nav-link" href="trends.php">View Trends</a>
                 <a class="ghost-btn nav-link" href="calendar.php">View Calendar</a>
+                <a class="ghost-btn nav-link" href="logout.php">Log Out</a>
             </div>
         </header>
 

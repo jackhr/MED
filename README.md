@@ -3,6 +3,7 @@
 Simple PHP + MySQL website for logging medicine intake.
 
 ## Features
+- Login page (no signup flow) using DB-backed credentials from `app_users`
 - Dashboard landing page with quick metrics
 - Async add/edit flows (no full-page reload after save/update)
 - Edit existing entries in a modal, including delete
@@ -34,7 +35,9 @@ medicine-log/
     migrations/
       20260214_add_mood_and_rating.sql
       20260214_remove_mood_from_intake_logs.sql
+      20260215_add_app_users_table.sql
   src/
+    Auth.php
     Database.php
     Env.php
   .env
@@ -42,7 +45,7 @@ medicine-log/
 ```
 
 ## Setup
-1. Configure DB credentials in `.env`.
+1. Copy `.env.example` to `.env` and configure DB values.
 2. Initialize database:
    ```bash
    mysql -u root -p < sql/init.sql
@@ -51,14 +54,24 @@ medicine-log/
    ```bash
    mysql -u root -p < sql/migrations/20260214_add_mood_and_rating.sql
    mysql -u root -p < sql/migrations/20260214_remove_mood_from_intake_logs.sql
+   mysql -u root -p < sql/migrations/20260215_add_app_users_table.sql
    ```
-4. Start local PHP server:
+4. Create your login user:
+   ```bash
+   php -r "echo password_hash('your_password_here', PASSWORD_DEFAULT), PHP_EOL;"
+   ```
+   ```sql
+   INSERT INTO app_users (username, password_hash)
+   VALUES ('your_username', 'paste_hash_here');
+   ```
+5. Start local PHP server:
    ```bash
    php -S localhost:8080 -t public
    ```
-5. Open:
+6. Open:
    `http://localhost:8080`
 
 ## Notes
 - Default DB name in the SQL and `.env` is `medicine_log`.
 - If you change DB name in `sql/init.sql`, keep `DB_NAME` in `.env` in sync.
+- Dashboard, trends, and calendar pages require login (`login.php`).
