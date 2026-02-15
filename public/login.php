@@ -77,6 +77,8 @@ function e(string $value): string
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Medicine Tracker Login</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="shortcut icon" href="favicon.svg">
     <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
