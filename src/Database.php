@@ -20,7 +20,11 @@ final class Database
         $host = Env::get('DB_HOST', '127.0.0.1');
         $port = Env::get('DB_PORT', '3306');
         $dbName = Env::get('DB_NAME', 'medicine_log');
-        $charset = Env::get('DB_CHARSET', 'utf8mb4');
+        $charsetRaw = strtolower(trim((string) Env::get('DB_CHARSET', 'utf8mb4')));
+        $charset = $charsetRaw !== '' ? $charsetRaw : 'utf8mb4';
+        if ($charset === 'utf8') {
+            $charset = 'utf8mb4';
+        }
         $username = Env::get('DB_USER', 'root');
         $password = Env::get('DB_PASS', '');
 

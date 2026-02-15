@@ -29,6 +29,39 @@ function e(string $value): string
     return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
 }
 
+function utf8Length(string $value): int
+{
+    if (function_exists('mb_strlen')) {
+        $length = mb_strlen($value, 'UTF-8');
+        if ($length !== false) {
+            return $length;
+        }
+    }
+
+    return strlen($value);
+}
+
+function utf8Truncate(string $value, int $maxLength): string
+{
+    if ($maxLength <= 0) {
+        return '';
+    }
+
+    if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+        $length = mb_strlen($value, 'UTF-8');
+        if ($length !== false && $length > $maxLength) {
+            $trimmed = mb_substr($value, 0, $maxLength, 'UTF-8');
+            return $trimmed === false ? $value : $trimmed;
+        }
+
+        return $value;
+    }
+
+    return strlen($value) > $maxLength
+        ? substr($value, 0, $maxLength)
+        : $value;
+}
+
 function formatDateTime(string $value): string
 {
     try {
@@ -87,7 +120,12 @@ function jsonResponse(array $payload, int $statusCode = 200): void
 {
     http_response_code($statusCode);
     header('Content-Type: application/json; charset=UTF-8');
-    echo json_encode($payload, JSON_UNESCAPED_SLASHES);
+    $json = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    if (!is_string($json)) {
+        $json = '{"ok":false,"error":"Unable to encode response payload."}';
+    }
+
+    echo $json;
 }
 
 function requestPayload(): array
@@ -165,7 +203,7 @@ function resolveMedicineId(PDO $pdo, array &$data, array &$errors): ?int
         return null;
     }
 
-    if (strlen($data['medicine_name']) > 120) {
+    if (utf8Length($data['medicine_name']) > 120) {
         $errors[] = 'Medicine name must be 120 characters or less.';
         return null;
     }
@@ -210,7 +248,7 @@ function validateIntake(array $payload, PDO $pdo, array $allowedDosageUnits): ar
         }
     } elseif ($data['medicine_name'] === '') {
         $errors[] = 'New medicine name is required.';
-    } elseif (strlen($data['medicine_name']) > 120) {
+    } elseif (utf8Length($data['medicine_name']) > 120) {
         $errors[] = 'Medicine name must be 120 characters or less.';
     }
 
@@ -252,7 +290,7 @@ function validateIntake(array $payload, PDO $pdo, array $allowedDosageUnits): ar
         $errors[] = 'Date and time taken is required.';
     }
 
-    if (strlen($data['notes']) > 255) {
+    if (utf8Length($data['notes']) > 255) {
         $errors[] = 'Notes must be 255 characters or less.';
     }
 
@@ -354,10 +392,7 @@ function normalizeFilterDate(string $value): ?string
 
 function normalizeEntryFilters(array $filters): array
 {
-    $search = trim((string) ($filters['search'] ?? ''));
-    if (strlen($search) > 120) {
-        $search = substr($search, 0, 120);
-    }
+    $search = utf8Truncate(trim((string) ($filters['search'] ?? '')), 120);
 
     $medicineId = (int) ($filters['medicine_id'] ?? 0);
     if ($medicineId <= 0) {
@@ -625,7 +660,15 @@ function downloadBackupJson(PDO $pdo): void
     header('Content-Disposition: attachment; filename="' . $filename . '"');
     header('Cache-Control: no-store, no-cache, must-revalidate');
     header('Pragma: no-cache');
-    echo json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    $json = json_encode(
+        $payload,
+        JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
+    );
+    if (!is_string($json)) {
+        throw new RuntimeException('Unable to encode JSON backup payload.');
+    }
+
+    echo $json;
 }
 
 function downloadBackupSql(PDO $pdo): void

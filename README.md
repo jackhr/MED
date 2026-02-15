@@ -40,6 +40,7 @@ medicine-log/
       20260214_remove_mood_from_intake_logs.sql
       20260215_add_app_users_table.sql
       20260215_add_dose_schedules_and_push.sql
+      20260215_convert_tables_to_utf8mb4.sql
   scripts/
     generate_vapid_keys.php
   src/
@@ -62,6 +63,7 @@ medicine-log/
    mysql -u root -p < sql/migrations/20260214_remove_mood_from_intake_logs.sql
    mysql -u root -p < sql/migrations/20260215_add_app_users_table.sql
    mysql -u root -p < sql/migrations/20260215_add_dose_schedules_and_push.sql
+   mysql -u root -p < sql/migrations/20260215_convert_tables_to_utf8mb4.sql
    ```
 4. Create your login user:
    ```bash
