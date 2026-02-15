@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once dirname(__DIR__) . '/src/Env.php';
 require_once dirname(__DIR__) . '/src/Database.php';
 require_once dirname(__DIR__) . '/src/Auth.php';
+require_once dirname(__DIR__) . '/src/PushNotifications.php';
 
 Env::load(dirname(__DIR__) . '/.env');
 date_default_timezone_set(Env::get('APP_TIMEZONE', 'UTC') ?? 'UTC');
@@ -15,7 +16,9 @@ $perPage = 10;
 $allowedDosageUnits = ['mg', 'ml', 'g', 'mcg', 'tablet', 'drop'];
 
 Auth::startSession();
-if ($apiAction !== '') {
+if ($apiAction === 'process_reminders') {
+    // Cron calls can use a token on this endpoint without an active session.
+} elseif ($apiAction !== '') {
     Auth::requireAuthForApi();
 } else {
     Auth::requireAuthForPage('login.php');
@@ -955,6 +958,381 @@ function loadMedicineOptions(PDO $pdo): array
     ));
 }
 
+function normalizeTimeOfDay(string $value): ?string
+{
+    $trimmed = trim($value);
+    if ($trimmed === '') {
+        return null;
+    }
+
+    $match = [];
+    if (preg_match('/^([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/', $trimmed, $match) !== 1) {
+        return null;
+    }
+
+    $hour = $match[1];
+    $minute = $match[2];
+    $second = $match[3] ?? '00';
+
+    return sprintf('%s:%s:%s', $hour, $minute, $second);
+}
+
+function normalizeSchedulePayload(array $payload): array
+{
+    return [
+        'medicine_id' => (int) ($payload['medicine_id'] ?? 0),
+        'dosage_value' => trim((string) ($payload['dosage_value'] ?? '20')),
+        'dosage_unit' => strtolower(trim((string) ($payload['dosage_unit'] ?? 'mg'))),
+        'time_of_day' => trim((string) ($payload['time_of_day'] ?? '')),
+        'is_active' => isset($payload['is_active']) ? (int) $payload['is_active'] : 1,
+    ];
+}
+
+function validateSchedulePayload(array $payload, PDO $pdo, array $allowedDosageUnits): array
+{
+    $data = normalizeSchedulePayload($payload);
+    $errors = [];
+
+    $medicineName = '';
+    if ($data['medicine_id'] <= 0) {
+        $errors[] = 'Please choose a medicine for this schedule.';
+    } else {
+        $statement = $pdo->prepare('SELECT id, name FROM medicines WHERE id = :id LIMIT 1');
+        $statement->execute([':id' => $data['medicine_id']]);
+        $medicine = $statement->fetch();
+        if (!is_array($medicine)) {
+            $errors[] = 'The selected medicine does not exist.';
+        } else {
+            $medicineName = (string) $medicine['name'];
+        }
+    }
+
+    $dosageValueForDb = null;
+    if ($data['dosage_value'] === '') {
+        $errors[] = 'Dosage amount is required.';
+    } elseif (!is_numeric($data['dosage_value'])) {
+        $errors[] = 'Dosage amount must be a number.';
+    } else {
+        $dosageNumber = (float) $data['dosage_value'];
+        if ($dosageNumber <= 0) {
+            $errors[] = 'Dosage amount must be greater than zero.';
+        } elseif ($dosageNumber > 10000) {
+            $errors[] = 'Dosage amount is too large.';
+        } else {
+            $dosageValueForDb = number_format($dosageNumber, 2, '.', '');
+        }
+    }
+
+    if (!in_array($data['dosage_unit'], $allowedDosageUnits, true)) {
+        $errors[] = 'Dosage unit is invalid.';
+    }
+
+    $timeOfDayForDb = normalizeTimeOfDay($data['time_of_day']);
+    if ($timeOfDayForDb === null) {
+        $errors[] = 'Reminder time must be in HH:MM format.';
+    }
+
+    return [
+        'errors' => $errors,
+        'medicine_name' => $medicineName,
+        'dosage_value_for_db' => $dosageValueForDb,
+        'time_of_day_for_db' => $timeOfDayForDb,
+        'data' => $data,
+    ];
+}
+
+function serializeSchedule(array $row): array
+{
+    $timeOfDay = (string) ($row['time_of_day'] ?? '00:00:00');
+
+    return [
+        'id' => (int) ($row['id'] ?? 0),
+        'user_id' => (int) ($row['user_id'] ?? 0),
+        'medicine_id' => (int) ($row['medicine_id'] ?? 0),
+        'medicine_name' => (string) ($row['medicine_name'] ?? ''),
+        'dosage_value' => formatDosageValue((string) ($row['dosage_value'] ?? '0')),
+        'dosage_unit' => (string) ($row['dosage_unit'] ?? 'mg'),
+        'dosage_display' => formatDosageValue((string) ($row['dosage_value'] ?? '0'))
+            . ' '
+            . (string) ($row['dosage_unit'] ?? 'mg'),
+        'time_of_day' => $timeOfDay,
+        'time_of_day_input' => substr($timeOfDay, 0, 5),
+        'time_label' => formatTimeOnly('1970-01-01 ' . $timeOfDay),
+        'is_active' => (int) ($row['is_active'] ?? 0) === 1,
+        'created_at' => (string) ($row['created_at'] ?? ''),
+        'updated_at' => (string) ($row['updated_at'] ?? ''),
+    ];
+}
+
+function loadDoseSchedules(PDO $pdo, int $userId): array
+{
+    $statement = $pdo->prepare(
+        'SELECT s.id,
+                s.user_id,
+                s.medicine_id,
+                m.name AS medicine_name,
+                s.dosage_value,
+                s.dosage_unit,
+                s.time_of_day,
+                s.is_active,
+                s.created_at,
+                s.updated_at
+         FROM dose_schedules s
+         INNER JOIN medicines m ON m.id = s.medicine_id
+         WHERE s.user_id = :user_id
+         ORDER BY s.time_of_day ASC, m.name ASC, s.id ASC'
+    );
+    $statement->execute([':user_id' => $userId]);
+    $rows = $statement->fetchAll();
+
+    return array_values(array_map(static fn(array $row): array => serializeSchedule($row), $rows));
+}
+
+function savePushSubscription(PDO $pdo, int $userId, array $payload): array
+{
+    $endpoint = trim((string) ($payload['endpoint'] ?? ''));
+    $keys = is_array($payload['keys'] ?? null) ? $payload['keys'] : [];
+    $p256dh = trim((string) ($keys['p256dh'] ?? ''));
+    $authKey = trim((string) ($keys['auth'] ?? ''));
+    $userAgent = trim((string) ($payload['user_agent'] ?? ($_SERVER['HTTP_USER_AGENT'] ?? '')));
+
+    if ($endpoint === '' || $p256dh === '' || $authKey === '') {
+        return [
+            'ok' => false,
+            'error' => 'Invalid push subscription payload.',
+        ];
+    }
+
+    $endpointHash = hash('sha256', $endpoint);
+
+    $statement = $pdo->prepare(
+        'INSERT INTO push_subscriptions (user_id, endpoint, endpoint_hash, p256dh, auth_key, user_agent, is_active, last_seen_at)
+         VALUES (:user_id, :endpoint, :endpoint_hash, :p256dh, :auth_key, :user_agent, 1, NOW())
+         ON DUPLICATE KEY UPDATE
+            user_id = VALUES(user_id),
+            endpoint = VALUES(endpoint),
+            p256dh = VALUES(p256dh),
+            auth_key = VALUES(auth_key),
+            user_agent = VALUES(user_agent),
+            is_active = 1,
+            last_seen_at = NOW()'
+    );
+    $statement->execute([
+        ':user_id' => $userId,
+        ':endpoint' => $endpoint,
+        ':endpoint_hash' => $endpointHash,
+        ':p256dh' => $p256dh,
+        ':auth_key' => $authKey,
+        ':user_agent' => $userAgent !== '' ? substr($userAgent, 0, 255) : null,
+    ]);
+
+    return [
+        'ok' => true,
+        'endpoint_hash' => $endpointHash,
+    ];
+}
+
+function removePushSubscription(PDO $pdo, int $userId, array $payload): void
+{
+    $endpoint = trim((string) ($payload['endpoint'] ?? ''));
+    if ($endpoint === '') {
+        return;
+    }
+
+    $statement = $pdo->prepare(
+        'UPDATE push_subscriptions
+         SET is_active = 0, updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = :user_id
+           AND endpoint_hash = :endpoint_hash'
+    );
+    $statement->execute([
+        ':user_id' => $userId,
+        ':endpoint_hash' => hash('sha256', $endpoint),
+    ]);
+}
+
+function activePushSubscriptions(PDO $pdo, int $userId): array
+{
+    $statement = $pdo->prepare(
+        'SELECT id, endpoint, endpoint_hash
+         FROM push_subscriptions
+         WHERE user_id = :user_id
+           AND is_active = 1'
+    );
+    $statement->execute([':user_id' => $userId]);
+    $rows = $statement->fetchAll();
+
+    return is_array($rows) ? $rows : [];
+}
+
+function dispatchPushForUser(PDO $pdo, int $userId): array
+{
+    $subscriptions = activePushSubscriptions($pdo, $userId);
+    $attempted = count($subscriptions);
+    $sent = 0;
+    $failed = 0;
+    $deactivated = 0;
+    $statusBreakdown = [];
+    $failureDetails = [];
+
+    foreach ($subscriptions as $subscription) {
+        $endpoint = (string) ($subscription['endpoint'] ?? '');
+        if ($endpoint === '') {
+            continue;
+        }
+
+        $result = PushNotifications::sendToEndpoint($endpoint);
+        $status = (int) ($result['status'] ?? 0);
+        $statusKey = (string) $status;
+        $statusBreakdown[$statusKey] = (int) ($statusBreakdown[$statusKey] ?? 0) + 1;
+
+        if (($result['ok'] ?? false) === true) {
+            $sent += 1;
+            continue;
+        }
+
+        $failed += 1;
+        $host = (string) (parse_url($endpoint, PHP_URL_HOST) ?? '');
+        $failureDetails[] = [
+            'subscription_id' => (int) ($subscription['id'] ?? 0),
+            'host' => $host !== '' ? $host : 'unknown',
+            'status' => $status,
+            'transport' => (string) ($result['transport'] ?? 'unknown'),
+            'error' => substr(trim((string) ($result['error'] ?? '')), 0, 220),
+        ];
+
+        if ($status === 404 || $status === 410) {
+            $deactivateStatement = $pdo->prepare(
+                'UPDATE push_subscriptions
+                 SET is_active = 0, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = :id'
+            );
+            $deactivateStatement->execute([':id' => (int) ($subscription['id'] ?? 0)]);
+            $deactivated += 1;
+        }
+    }
+
+    return [
+        'attempted' => $attempted,
+        'sent' => $sent,
+        'failed' => $failed,
+        'deactivated' => $deactivated,
+        'status_breakdown' => $statusBreakdown,
+        'failures' => $failureDetails,
+    ];
+}
+
+function processDueReminders(PDO $pdo, ?int $userId = null): array
+{
+    $timezoneName = Env::get('APP_TIMEZONE', 'UTC') ?? 'UTC';
+    $timezone = new DateTimeZone($timezoneName);
+    $now = new DateTimeImmutable('now', $timezone);
+    $windowMinutesRaw = (int) (Env::get('REMINDER_WINDOW_MINUTES', '5') ?? 5);
+    $windowMinutes = max(1, min(30, $windowMinutesRaw));
+    $windowStart = $now->sub(new DateInterval('PT' . $windowMinutes . 'M'));
+
+    $query = 'SELECT s.id,
+                     s.user_id,
+                     s.medicine_id,
+                     m.name AS medicine_name,
+                     s.dosage_value,
+                     s.dosage_unit,
+                     s.time_of_day,
+                     s.is_active
+              FROM dose_schedules s
+              INNER JOIN medicines m ON m.id = s.medicine_id
+              WHERE s.is_active = 1';
+    $params = [];
+
+    if ($userId !== null) {
+        $query .= ' AND s.user_id = :user_id';
+        $params[':user_id'] = $userId;
+    }
+
+    $query .= ' ORDER BY s.user_id ASC, s.time_of_day ASC, s.id ASC';
+    $scheduleStatement = $pdo->prepare($query);
+    $scheduleStatement->execute($params);
+    $schedules = $scheduleStatement->fetchAll();
+
+    $processed = 0;
+    $due = 0;
+    $sent = 0;
+    $skipped = 0;
+
+    foreach ($schedules as $schedule) {
+        $processed += 1;
+        $scheduleTime = substr((string) ($schedule['time_of_day'] ?? '00:00:00'), 0, 5);
+        $scheduledFor = DateTimeImmutable::createFromFormat(
+            'Y-m-d H:i',
+            $now->format('Y-m-d') . ' ' . $scheduleTime,
+            $timezone
+        );
+        if (!$scheduledFor instanceof DateTimeImmutable) {
+            $skipped += 1;
+            continue;
+        }
+
+        if ($scheduledFor < $windowStart || $scheduledFor > $now) {
+            $skipped += 1;
+            continue;
+        }
+
+        $scheduledForDb = $scheduledFor->format('Y-m-d H:i:s');
+        $dispatchId = null;
+
+        try {
+            $insertStatement = $pdo->prepare(
+                'INSERT INTO reminder_dispatches (schedule_id, scheduled_for, status)
+                 VALUES (:schedule_id, :scheduled_for, :status)'
+            );
+            $insertStatement->execute([
+                ':schedule_id' => (int) $schedule['id'],
+                ':scheduled_for' => $scheduledForDb,
+                ':status' => 'pending',
+            ]);
+            $dispatchId = (int) $pdo->lastInsertId();
+            $due += 1;
+        } catch (Throwable $exception) {
+            // Unique index prevents duplicate sends for the same schedule occurrence.
+            $skipped += 1;
+            continue;
+        }
+
+        $dispatchResult = dispatchPushForUser($pdo, (int) $schedule['user_id']);
+        $sent += (int) ($dispatchResult['sent'] ?? 0);
+        $status = ((int) ($dispatchResult['sent'] ?? 0) > 0) ? 'sent' : 'failed';
+        $errorMessage = ((int) ($dispatchResult['attempted'] ?? 0) === 0)
+            ? 'No active browser subscriptions.'
+            : (((int) ($dispatchResult['failed'] ?? 0) > 0) ? 'One or more push sends failed.' : null);
+
+        if ($dispatchId !== null) {
+            $updateStatement = $pdo->prepare(
+                'UPDATE reminder_dispatches
+                 SET sent_count = :sent_count,
+                     status = :status,
+                     error_message = :error_message,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = :id'
+            );
+            $updateStatement->execute([
+                ':sent_count' => (int) ($dispatchResult['sent'] ?? 0),
+                ':status' => $status,
+                ':error_message' => $errorMessage,
+                ':id' => $dispatchId,
+            ]);
+        }
+    }
+
+    return [
+        'processed' => $processed,
+        'due' => $due,
+        'sent' => $sent,
+        'skipped' => $skipped,
+        'window_minutes' => $windowMinutes,
+        'processed_at' => $now->format(DateTimeInterface::ATOM),
+    ];
+}
+
 $dbError = null;
 try {
     $pdo = Database::connection();
@@ -973,6 +1351,8 @@ if ($apiAction !== '') {
     }
 
     try {
+        $currentUserId = Auth::userId();
+
         if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'dashboard') {
             jsonResponse([
                 'ok' => true,
@@ -1002,6 +1382,22 @@ if ($apiAction !== '') {
             jsonResponse([
                 'ok' => true,
                 'medicines' => loadMedicineOptions($pdo),
+            ]);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'schedules') {
+            if ($currentUserId === null) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Authentication required.',
+                ], 401);
+                exit;
+            }
+
+            jsonResponse([
+                'ok' => true,
+                'schedules' => loadDoseSchedules($pdo, $currentUserId),
             ]);
             exit;
         }
@@ -1045,6 +1441,220 @@ if ($apiAction !== '') {
 
         if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'backup_sql') {
             downloadBackupSql($pdo);
+            exit;
+        }
+
+        if (
+            in_array($_SERVER['REQUEST_METHOD'], ['GET', 'POST'], true)
+            && $apiAction === 'process_reminders'
+        ) {
+            $expectedToken = trim((string) (Env::get('REMINDER_CRON_TOKEN', '') ?? ''));
+            $providedToken = trim((string) ($_GET['token'] ?? $_POST['token'] ?? ''));
+            $isCronAuthorized = $expectedToken !== ''
+                && $providedToken !== ''
+                && hash_equals($expectedToken, $providedToken);
+
+            if (!$isCronAuthorized && $currentUserId === null) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Authentication required.',
+                ], 401);
+                exit;
+            }
+
+            $result = processDueReminders($pdo, $isCronAuthorized ? null : $currentUserId);
+            jsonResponse([
+                'ok' => true,
+                'result' => $result,
+            ]);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && $apiAction === 'schedule_create') {
+            if ($currentUserId === null) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Authentication required.',
+                ], 401);
+                exit;
+            }
+
+            $payload = requestPayload();
+            $validated = validateSchedulePayload($payload, $pdo, $allowedDosageUnits);
+            if ($validated['errors'] !== []) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Validation failed.',
+                    'errors' => $validated['errors'],
+                ], 422);
+                exit;
+            }
+
+            $data = $validated['data'];
+            $statement = $pdo->prepare(
+                'INSERT INTO dose_schedules (user_id, medicine_id, dosage_value, dosage_unit, time_of_day, is_active)
+                 VALUES (:user_id, :medicine_id, :dosage_value, :dosage_unit, :time_of_day, :is_active)'
+            );
+            $statement->execute([
+                ':user_id' => $currentUserId,
+                ':medicine_id' => $data['medicine_id'],
+                ':dosage_value' => $validated['dosage_value_for_db'],
+                ':dosage_unit' => $data['dosage_unit'],
+                ':time_of_day' => $validated['time_of_day_for_db'],
+                ':is_active' => $data['is_active'] === 0 ? 0 : 1,
+            ]);
+
+            jsonResponse([
+                'ok' => true,
+                'message' => 'Schedule created.',
+            ], 201);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && $apiAction === 'schedule_toggle') {
+            if ($currentUserId === null) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Authentication required.',
+                ], 401);
+                exit;
+            }
+
+            $payload = requestPayload();
+            $scheduleId = (int) ($payload['id'] ?? 0);
+            $isActive = (int) ($payload['is_active'] ?? 0) === 1 ? 1 : 0;
+            if ($scheduleId <= 0) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Valid schedule id is required.',
+                ], 422);
+                exit;
+            }
+
+            $statement = $pdo->prepare(
+                'UPDATE dose_schedules
+                 SET is_active = :is_active, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = :id AND user_id = :user_id'
+            );
+            $statement->execute([
+                ':is_active' => $isActive,
+                ':id' => $scheduleId,
+                ':user_id' => $currentUserId,
+            ]);
+
+            if ($statement->rowCount() === 0) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Schedule not found.',
+                ], 404);
+                exit;
+            }
+
+            jsonResponse([
+                'ok' => true,
+                'message' => $isActive === 1 ? 'Schedule enabled.' : 'Schedule paused.',
+            ]);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && $apiAction === 'schedule_delete') {
+            if ($currentUserId === null) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Authentication required.',
+                ], 401);
+                exit;
+            }
+
+            $payload = requestPayload();
+            $scheduleId = (int) ($payload['id'] ?? 0);
+            if ($scheduleId <= 0) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Valid schedule id is required.',
+                ], 422);
+                exit;
+            }
+
+            $statement = $pdo->prepare('DELETE FROM dose_schedules WHERE id = :id AND user_id = :user_id');
+            $statement->execute([
+                ':id' => $scheduleId,
+                ':user_id' => $currentUserId,
+            ]);
+
+            if ($statement->rowCount() === 0) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Schedule not found.',
+                ], 404);
+                exit;
+            }
+
+            jsonResponse([
+                'ok' => true,
+                'message' => 'Schedule deleted.',
+            ]);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && $apiAction === 'push_subscribe') {
+            if ($currentUserId === null) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Authentication required.',
+                ], 401);
+                exit;
+            }
+
+            $payload = requestPayload();
+            $saved = savePushSubscription($pdo, $currentUserId, $payload);
+            if (($saved['ok'] ?? false) !== true) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => (string) ($saved['error'] ?? 'Could not save subscription.'),
+                ], 422);
+                exit;
+            }
+
+            jsonResponse([
+                'ok' => true,
+                'message' => 'Browser subscription saved.',
+            ]);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && $apiAction === 'push_unsubscribe') {
+            if ($currentUserId === null) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Authentication required.',
+                ], 401);
+                exit;
+            }
+
+            $payload = requestPayload();
+            removePushSubscription($pdo, $currentUserId, $payload);
+            jsonResponse([
+                'ok' => true,
+                'message' => 'Browser subscription removed.',
+            ]);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && $apiAction === 'push_test') {
+            if ($currentUserId === null) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Authentication required.',
+                ], 401);
+                exit;
+            }
+
+            $dispatch = dispatchPushForUser($pdo, $currentUserId);
+            jsonResponse([
+                'ok' => true,
+                'dispatch' => $dispatch,
+            ]);
             exit;
         }
 
@@ -1204,7 +1814,9 @@ $dbReady = $pdo instanceof PDO;
     <script>
         window.MEDICINE_LOG_CONFIG = {
             apiPath: <?= json_encode($selfPath, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
-            perPage: <?= $perPage ?>
+            perPage: <?= $perPage ?>,
+            pushPublicKey: <?= json_encode(PushNotifications::publicKey(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
+            pushConfigured: <?= PushNotifications::isConfigured() ? 'true' : 'false' ?>
         };
     </script>
     <script src="assets/app.js" defer></script>
@@ -1393,6 +2005,81 @@ $dbReady = $pdo instanceof PDO;
                 </div>
 
                 <nav id="pagination" class="pagination" aria-label="Entries pagination"></nav>
+            </article>
+        </section>
+
+        <section class="schedule-grid">
+            <article class="card">
+                <div class="section-header">
+                    <h2>Dose Schedules</h2>
+                    <span id="schedule-meta" class="meta-text">Daily reminder times with browser push alerts.</span>
+                </div>
+
+                <div class="push-controls">
+                    <button id="enable-push-btn" type="button" class="ghost-btn">Enable Push Notifications</button>
+                    <button id="disable-push-btn" type="button" class="ghost-btn">Disable Push Notifications</button>
+                    <button id="test-push-btn" type="button" class="ghost-btn">Send Test Push</button>
+                    <button id="run-reminders-btn" type="button" class="ghost-btn">Run Reminder Check</button>
+                </div>
+                <p id="push-status" class="meta-text">Push not configured.</p>
+
+                <form id="schedule-form" novalidate>
+                    <div class="schedule-form-grid">
+                        <div>
+                            <label for="schedule_medicine_id">Medicine</label>
+                            <select id="schedule_medicine_id" name="schedule_medicine_id" required></select>
+                        </div>
+
+                        <div>
+                            <label for="schedule_time_of_day">Reminder Time</label>
+                            <input id="schedule_time_of_day" name="schedule_time_of_day" type="time" required>
+                        </div>
+
+                        <div>
+                            <label for="schedule_dosage_value">Dosage</label>
+                            <div class="dosage-fields">
+                                <input id="schedule_dosage_value" name="schedule_dosage_value" type="number" min="0.01" step="0.01" value="20" required>
+                                <select id="schedule_dosage_unit" name="schedule_dosage_unit" required>
+                                    <option value="mg" selected>mg</option>
+                                    <option value="ml">ml</option>
+                                    <option value="g">g</option>
+                                    <option value="mcg">mcg</option>
+                                    <option value="tablet">tablet</option>
+                                    <option value="drop">drop</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="schedule-active-wrap">
+                            <label for="schedule_is_active">Enabled</label>
+                            <input id="schedule_is_active" name="schedule_is_active" type="checkbox" checked>
+                        </div>
+                    </div>
+
+                    <button id="schedule-submit-btn" class="primary-btn" type="submit">Add Schedule</button>
+                </form>
+            </article>
+
+            <article class="card">
+                <h2>Current Schedules</h2>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Medicine</th>
+                                <th>Dosage</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="schedules-body">
+                            <tr>
+                                <td class="empty-cell" colspan="5">Loading schedules...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </article>
         </section>
     </main>

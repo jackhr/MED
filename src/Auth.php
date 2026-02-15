@@ -45,6 +45,30 @@ final class Auth
         return $userId > 0 && $username !== '';
     }
 
+    public static function userId(): ?int
+    {
+        if (!self::isAuthenticated()) {
+            return null;
+        }
+
+        $user = $_SESSION[self::SESSION_KEY] ?? null;
+        $userId = (int) (($user['id'] ?? 0));
+
+        return $userId > 0 ? $userId : null;
+    }
+
+    public static function username(): ?string
+    {
+        if (!self::isAuthenticated()) {
+            return null;
+        }
+
+        $user = $_SESSION[self::SESSION_KEY] ?? null;
+        $username = trim((string) ($user['username'] ?? ''));
+
+        return $username !== '' ? $username : null;
+    }
+
     public static function requireAuthForPage(string $loginPath = 'login.php'): void
     {
         if (self::isAuthenticated()) {

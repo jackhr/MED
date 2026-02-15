@@ -181,6 +181,13 @@ body.modal-open {
     align-items          : start;
 }
 
+.schedule-grid {
+    display              : grid;
+    grid-template-columns: 390px minmax(0, 1fr);
+    gap                  : 0.95rem;
+    align-items          : start;
+}
+
 .trends-grid {
     display              : grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -581,6 +588,39 @@ h2 {
     font-weight: 700;
 }
 
+.push-controls {
+    display      : flex;
+    flex-wrap    : wrap;
+    gap          : 0.45rem;
+    margin-bottom: 0.42rem;
+}
+
+#push-status.push-ok {
+    color: #146c43;
+}
+
+#push-status.push-error {
+    color: #8b1f28;
+}
+
+.schedule-form-grid {
+    display              : grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap                  : 0.56rem;
+}
+
+.schedule-active-wrap {
+    display        : flex;
+    align-items    : center;
+    gap            : 0.5rem;
+    padding-top    : 1.55rem;
+    justify-content: flex-start;
+}
+
+.schedule-active-wrap input {
+    width: auto;
+}
+
 form {
     display: grid;
     gap    : 0.55rem;
@@ -812,6 +852,13 @@ th {
     background: #dcf3ef;
 }
 
+.schedule-delete-btn {
+    margin-left : 0.45rem;
+    border-color: #e8b7bd;
+    background  : #fff4f5;
+    color       : #8f2832;
+}
+
 .empty-cell {
     color: var(--muted);
 }
@@ -907,6 +954,10 @@ th {
         grid-template-columns: 1fr;
     }
 
+    .schedule-grid {
+        grid-template-columns: 1fr;
+    }
+
     .history-filter-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
@@ -934,6 +985,10 @@ th {
     }
 
     .history-filter-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .schedule-form-grid {
         grid-template-columns: 1fr;
     }
 
