@@ -195,6 +195,13 @@ body.modal-open {
     align-items          : start;
 }
 
+.workspace-grid > *,
+.schedule-grid > *,
+.trends-grid > *,
+.calendar-layout > * {
+    min-width: 0;
+}
+
 .calendar-controls {
     display              : grid;
     grid-template-columns: minmax(0, 1fr) 220px;
@@ -785,7 +792,7 @@ textarea {
 table {
     width          : 100%;
     border-collapse: collapse;
-    min-width      : 860px;
+    min-width      : 680px;
 }
 
 th,
@@ -994,6 +1001,21 @@ th {
 
     .dosage-fields {
         grid-template-columns: 1fr;
+    }
+
+    table {
+        min-width: 0;
+    }
+
+    th,
+    td {
+        font-size: 0.86rem;
+        padding  : 0.55rem 0.34rem;
+    }
+
+    .calendar-weekdays,
+    .calendar-grid {
+        min-width: 560px;
     }
 
     .dashboard {
