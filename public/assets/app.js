@@ -33,6 +33,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const historyFilterLast30Button = document.getElementById("history-filter-last30");
   const historyFilterToggleButton = document.getElementById("history-filter-toggle");
   const historyToolsPanel = document.getElementById("history-tools-panel");
+  const dataToolsToggleButton = document.getElementById("data-tools-toggle");
+  const dataToolsPanel = document.getElementById("data-tools-panel");
   const exportCsvButton = document.getElementById("export-csv-btn");
   const exportCsvAllButton = document.getElementById("export-csv-all-btn");
   const backupJsonButton = document.getElementById("backup-json-btn");
@@ -380,6 +382,24 @@ document.addEventListener("DOMContentLoaded", () => {
         ? "Hide Filters"
         : "Show Filters";
       historyFilterToggleButton.setAttribute(
+        "aria-expanded",
+        shouldShow ? "true" : "false"
+      );
+    }
+  }
+
+  function setDataToolsVisible(isVisible) {
+    const shouldShow = Boolean(isVisible);
+
+    if (dataToolsPanel) {
+      dataToolsPanel.hidden = !shouldShow;
+    }
+
+    if (dataToolsToggleButton) {
+      dataToolsToggleButton.textContent = shouldShow
+        ? "Hide Data Tools"
+        : "Show Data Tools";
+      dataToolsToggleButton.setAttribute(
         "aria-expanded",
         shouldShow ? "true" : "false"
       );
@@ -1405,6 +1425,7 @@ document.addEventListener("DOMContentLoaded", () => {
   applyFiltersToControls(currentFilters);
   updateHistoryFilterSummary();
   setHistoryFiltersVisible(hasActiveFilters(currentFilters));
+  setDataToolsVisible(false);
   syncPushButtons();
   if (!pushConfigured) {
     updatePushStatus("Push is not configured. Add VAPID keys in .env.", "error");
@@ -1413,6 +1434,11 @@ document.addEventListener("DOMContentLoaded", () => {
   historyFilterToggleButton?.addEventListener("click", () => {
     const currentlyVisible = historyToolsPanel ? !historyToolsPanel.hidden : false;
     setHistoryFiltersVisible(!currentlyVisible);
+  });
+
+  dataToolsToggleButton?.addEventListener("click", () => {
+    const currentlyVisible = dataToolsPanel ? !dataToolsPanel.hidden : false;
+    setDataToolsVisible(!currentlyVisible);
   });
 
   historyFilterForm?.addEventListener("submit", async (event) => {

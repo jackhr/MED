@@ -1924,6 +1924,15 @@ $dbReady = $pdo instanceof PDO;
                         >
                             Show Filters
                         </button>
+                        <button
+                            id="data-tools-toggle"
+                            type="button"
+                            class="ghost-btn history-toggle-btn"
+                            aria-controls="data-tools-panel"
+                            aria-expanded="false"
+                        >
+                            Show Data Tools
+                        </button>
                     </div>
                 </div>
 
@@ -1976,7 +1985,7 @@ $dbReady = $pdo instanceof PDO;
                     <p id="history-filter-summary" class="meta-text">No filters applied.</p>
                 </div>
 
-                <div class="data-tools">
+                <div id="data-tools-panel" class="data-tools" hidden>
                     <div class="data-tools-actions">
                         <button id="export-csv-btn" type="button" class="ghost-btn">Export CSV (Filtered)</button>
                         <button id="export-csv-all-btn" type="button" class="ghost-btn">Export CSV (All)</button>
