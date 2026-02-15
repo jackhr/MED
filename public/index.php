@@ -373,10 +373,8 @@ function normalizeEntryFilters(array $filters): array
     ];
 }
 
-function loadEntriesPage(PDO $pdo, int $page, int $perPage, array $filters): array
+function buildEntriesWhereSql(array $normalizedFilters): array
 {
-    $normalizedFilters = normalizeEntryFilters($filters);
-
     $whereParts = [];
     $bindings = [];
 
@@ -408,7 +406,44 @@ function loadEntriesPage(PDO $pdo, int $page, int $perPage, array $filters): arr
         $bindings[':to_date'] = $toDateEnd;
     }
 
-    $whereSql = $whereParts !== [] ? (' WHERE ' . implode(' AND ', $whereParts)) : '';
+    return [
+        'where_sql' => $whereParts !== [] ? (' WHERE ' . implode(' AND ', $whereParts)) : '',
+        'bindings' => $bindings,
+    ];
+}
+
+function bindSqlValues(PDOStatement $statement, array $bindings): void
+{
+    foreach ($bindings as $bindingKey => $bindingValue) {
+        $paramType = is_int($bindingValue) ? PDO::PARAM_INT : PDO::PARAM_STR;
+        $statement->bindValue($bindingKey, $bindingValue, $paramType);
+    }
+}
+
+function filteredEntriesQuerySql(string $whereSql, string $suffixSql = ''): string
+{
+    return 'SELECT l.id,
+                   l.medicine_id,
+                   m.name AS medicine_name,
+                   l.dosage_value,
+                   l.dosage_unit,
+                   l.rating,
+                   l.taken_at,
+                   l.notes,
+                   l.created_at
+            FROM medicine_intake_logs l
+            INNER JOIN medicines m ON m.id = l.medicine_id'
+        . $whereSql
+        . ' '
+        . trim($suffixSql);
+}
+
+function loadEntriesPage(PDO $pdo, int $page, int $perPage, array $filters): array
+{
+    $normalizedFilters = normalizeEntryFilters($filters);
+    $whereData = buildEntriesWhereSql($normalizedFilters);
+    $whereSql = $whereData['where_sql'];
+    $bindings = $whereData['bindings'];
     $totalAllEntries = (int) $pdo->query('SELECT COUNT(*) FROM medicine_intake_logs')->fetchColumn();
 
     $countStatement = $pdo->prepare(
@@ -417,36 +452,18 @@ function loadEntriesPage(PDO $pdo, int $page, int $perPage, array $filters): arr
          INNER JOIN medicines m ON m.id = l.medicine_id'
         . $whereSql
     );
-    foreach ($bindings as $bindingKey => $bindingValue) {
-        $paramType = is_int($bindingValue) ? PDO::PARAM_INT : PDO::PARAM_STR;
-        $countStatement->bindValue($bindingKey, $bindingValue, $paramType);
-    }
+    bindSqlValues($countStatement, $bindings);
     $countStatement->execute();
     $totalEntries = (int) $countStatement->fetchColumn();
     $totalPages = max(1, (int) ceil($totalEntries / $perPage));
     $safePage = min(max($page, 1), $totalPages);
     $offset = ($safePage - 1) * $perPage;
 
-    $statement = $pdo->prepare(
-        'SELECT l.id,
-                l.medicine_id,
-                m.name AS medicine_name,
-                l.dosage_value,
-                l.dosage_unit,
-                l.rating,
-                l.taken_at,
-                l.notes,
-                l.created_at
-         FROM medicine_intake_logs l
-         INNER JOIN medicines m ON m.id = l.medicine_id
-         ' . $whereSql . '
-         ORDER BY l.taken_at DESC, l.id DESC
-         LIMIT :limit OFFSET :offset'
-    );
-    foreach ($bindings as $bindingKey => $bindingValue) {
-        $paramType = is_int($bindingValue) ? PDO::PARAM_INT : PDO::PARAM_STR;
-        $statement->bindValue($bindingKey, $bindingValue, $paramType);
-    }
+    $statement = $pdo->prepare(filteredEntriesQuerySql(
+        $whereSql,
+        'ORDER BY l.taken_at DESC, l.id DESC LIMIT :limit OFFSET :offset'
+    ));
+    bindSqlValues($statement, $bindings);
     $statement->bindValue(':limit', $perPage, PDO::PARAM_INT);
     $statement->bindValue(':offset', $offset, PDO::PARAM_INT);
     $statement->execute();
@@ -476,6 +493,194 @@ function loadEntriesPage(PDO $pdo, int $page, int $perPage, array $filters): arr
                 || $normalizedFilters['to_date'] !== null,
         ],
     ];
+}
+
+function fetchEntriesForExport(PDO $pdo, array $filters): array
+{
+    $normalizedFilters = normalizeEntryFilters($filters);
+    $whereData = buildEntriesWhereSql($normalizedFilters);
+    $whereSql = $whereData['where_sql'];
+    $bindings = $whereData['bindings'];
+
+    $statement = $pdo->prepare(filteredEntriesQuerySql(
+        $whereSql,
+        'ORDER BY l.taken_at DESC, l.id DESC'
+    ));
+    bindSqlValues($statement, $bindings);
+    $statement->execute();
+    $rows = $statement->fetchAll();
+    $entries = array_map(static fn(array $row): array => serializeEntry($row), $rows);
+
+    return [
+        'entries' => $entries,
+        'filters' => $normalizedFilters,
+    ];
+}
+
+function downloadEntriesCsv(PDO $pdo, array $filters): void
+{
+    $exportData = fetchEntriesForExport($pdo, $filters);
+    $entries = $exportData['entries'];
+    $filtersData = $exportData['filters'];
+    $filtersActive = $filtersData['search'] !== ''
+        || $filtersData['medicine_id'] !== null
+        || $filtersData['rating'] !== null
+        || $filtersData['from_date'] !== null
+        || $filtersData['to_date'] !== null;
+
+    $scope = $filtersActive ? 'filtered' : 'all';
+    $filename = sprintf(
+        'medicine_entries_%s_%s.csv',
+        $scope,
+        date('Ymd_His')
+    );
+
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Cache-Control: no-store, no-cache, must-revalidate');
+    header('Pragma: no-cache');
+
+    $output = fopen('php://output', 'wb');
+    if ($output === false) {
+        throw new RuntimeException('Unable to open CSV output stream.');
+    }
+
+    fputcsv($output, [
+        'ID',
+        'Date',
+        'Time',
+        'Medicine',
+        'Dosage Value',
+        'Dosage Unit',
+        'Dosage',
+        'Rating',
+        'Notes',
+        'Taken At',
+        'Created At',
+    ]);
+
+    foreach ($entries as $entry) {
+        fputcsv($output, [
+            (string) $entry['id'],
+            (string) $entry['taken_day_key'],
+            (string) $entry['taken_time_display'],
+            (string) $entry['medicine_name'],
+            (string) $entry['dosage_value'],
+            (string) $entry['dosage_unit'],
+            (string) $entry['dosage_display'],
+            (string) $entry['rating'],
+            (string) $entry['notes'],
+            (string) $entry['taken_at'],
+            (string) $entry['created_at'],
+        ]);
+    }
+
+    fclose($output);
+}
+
+function sqlBackupValue(mixed $value): string
+{
+    if ($value === null) {
+        return 'NULL';
+    }
+
+    return "'" . str_replace("'", "''", (string) $value) . "'";
+}
+
+function downloadBackupJson(PDO $pdo): void
+{
+    $medicines = $pdo
+        ->query('SELECT id, name, created_at FROM medicines ORDER BY id ASC')
+        ->fetchAll();
+    $intakes = $pdo
+        ->query(
+            'SELECT id, medicine_id, dosage_value, dosage_unit, rating, taken_at, notes, created_at
+             FROM medicine_intake_logs
+             ORDER BY id ASC'
+        )
+        ->fetchAll();
+
+    $payload = [
+        'generated_at' => date('c'),
+        'tables' => [
+            'medicines' => is_array($medicines) ? $medicines : [],
+            'medicine_intake_logs' => is_array($intakes) ? $intakes : [],
+        ],
+    ];
+
+    $filename = 'medicine_backup_' . date('Ymd_His') . '.json';
+    header('Content-Type: application/json; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Cache-Control: no-store, no-cache, must-revalidate');
+    header('Pragma: no-cache');
+    echo json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+}
+
+function downloadBackupSql(PDO $pdo): void
+{
+    $medicines = $pdo
+        ->query('SELECT id, name, created_at FROM medicines ORDER BY id ASC')
+        ->fetchAll();
+    $intakes = $pdo
+        ->query(
+            'SELECT id, medicine_id, dosage_value, dosage_unit, rating, taken_at, notes, created_at
+             FROM medicine_intake_logs
+             ORDER BY id ASC'
+        )
+        ->fetchAll();
+
+    $lines = [];
+    $lines[] = '-- Medicine Log backup generated at ' . date('c');
+    $lines[] = 'SET FOREIGN_KEY_CHECKS=0;';
+    $lines[] = 'DELETE FROM medicine_intake_logs;';
+    $lines[] = 'DELETE FROM medicines;';
+    $lines[] = '';
+
+    if (is_array($medicines) && $medicines !== []) {
+        $medicineValues = [];
+        foreach ($medicines as $row) {
+            $medicineValues[] = sprintf(
+                '(%s, %s, %s)',
+                sqlBackupValue($row['id'] ?? null),
+                sqlBackupValue($row['name'] ?? null),
+                sqlBackupValue($row['created_at'] ?? null)
+            );
+        }
+
+        $lines[] = 'INSERT INTO medicines (id, name, created_at) VALUES';
+        $lines[] = implode(",\n", $medicineValues) . ';';
+        $lines[] = '';
+    }
+
+    if (is_array($intakes) && $intakes !== []) {
+        $intakeValues = [];
+        foreach ($intakes as $row) {
+            $intakeValues[] = sprintf(
+                '(%s, %s, %s, %s, %s, %s, %s, %s)',
+                sqlBackupValue($row['id'] ?? null),
+                sqlBackupValue($row['medicine_id'] ?? null),
+                sqlBackupValue($row['dosage_value'] ?? null),
+                sqlBackupValue($row['dosage_unit'] ?? null),
+                sqlBackupValue($row['rating'] ?? null),
+                sqlBackupValue($row['taken_at'] ?? null),
+                sqlBackupValue($row['notes'] ?? null),
+                sqlBackupValue($row['created_at'] ?? null)
+            );
+        }
+
+        $lines[] = 'INSERT INTO medicine_intake_logs (id, medicine_id, dosage_value, dosage_unit, rating, taken_at, notes, created_at) VALUES';
+        $lines[] = implode(",\n", $intakeValues) . ';';
+        $lines[] = '';
+    }
+
+    $lines[] = 'SET FOREIGN_KEY_CHECKS=1;';
+
+    $filename = 'medicine_backup_' . date('Ymd_His') . '.sql';
+    header('Content-Type: application/sql; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    header('Cache-Control: no-store, no-cache, must-revalidate');
+    header('Pragma: no-cache');
+    echo implode("\n", $lines);
 }
 
 function loadMetrics(PDO $pdo): array
@@ -813,6 +1018,28 @@ if ($apiAction !== '') {
             exit;
         }
 
+        if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'export_entries_csv') {
+            $exportFilters = [
+                'search' => (string) ($_GET['search'] ?? ''),
+                'medicine_id' => (int) ($_GET['medicine_id'] ?? 0),
+                'rating' => (int) ($_GET['rating'] ?? 0),
+                'from_date' => (string) ($_GET['from_date'] ?? ''),
+                'to_date' => (string) ($_GET['to_date'] ?? ''),
+            ];
+            downloadEntriesCsv($pdo, $exportFilters);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'backup_json') {
+            downloadBackupJson($pdo);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'backup_sql') {
+            downloadBackupSql($pdo);
+            exit;
+        }
+
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && $apiAction === 'create') {
             $payload = requestPayload();
             $validated = validateIntake($payload, $pdo, $allowedDosageUnits);
@@ -1124,6 +1351,16 @@ $dbReady = $pdo instanceof PDO;
                     </form>
 
                     <p id="history-filter-summary" class="meta-text">No filters applied.</p>
+                </div>
+
+                <div class="data-tools">
+                    <div class="data-tools-actions">
+                        <button id="export-csv-btn" type="button" class="ghost-btn">Export CSV (Filtered)</button>
+                        <button id="export-csv-all-btn" type="button" class="ghost-btn">Export CSV (All)</button>
+                        <button id="backup-json-btn" type="button" class="ghost-btn">Backup JSON</button>
+                        <button id="backup-sql-btn" type="button" class="ghost-btn">Backup SQL</button>
+                    </div>
+                    <p class="meta-text">Download entry exports and full backups for safekeeping.</p>
                 </div>
 
                 <div class="table-wrap">

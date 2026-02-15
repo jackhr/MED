@@ -33,6 +33,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const historyFilterLast30Button = document.getElementById("history-filter-last30");
   const historyFilterToggleButton = document.getElementById("history-filter-toggle");
   const historyToolsPanel = document.getElementById("history-tools-panel");
+  const exportCsvButton = document.getElementById("export-csv-btn");
+  const exportCsvAllButton = document.getElementById("export-csv-all-btn");
+  const backupJsonButton = document.getElementById("backup-json-btn");
+  const backupSqlButton = document.getElementById("backup-sql-btn");
 
   const modal = document.getElementById("edit-modal");
   const editForm = document.getElementById("edit-intake-form");
@@ -229,6 +233,39 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     return params;
+  }
+
+  function buildCurrentFilterParams() {
+    const params = {};
+
+    if (currentFilters.search) {
+      params.search = currentFilters.search;
+    }
+    if (currentFilters.medicine_id) {
+      params.medicine_id = currentFilters.medicine_id;
+    }
+    if (currentFilters.rating) {
+      params.rating = currentFilters.rating;
+    }
+    if (currentFilters.from_date) {
+      params.from_date = currentFilters.from_date;
+    }
+    if (currentFilters.to_date) {
+      params.to_date = currentFilters.to_date;
+    }
+
+    return params;
+  }
+
+  function triggerDownload(action, params = {}) {
+    const url = buildApiUrl(action, params);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.rel = "noopener";
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
   }
 
   function updateHistoryFilterSummary(totalEntries = null, totalAllEntries = null) {
@@ -1053,6 +1090,24 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (error) {
       showStatus(error.message, "error");
     }
+  });
+
+  exportCsvButton?.addEventListener("click", () => {
+    const filtersAtClick = collectFiltersFromControls();
+    currentFilters = filtersAtClick;
+    triggerDownload("export_entries_csv", buildCurrentFilterParams());
+  });
+
+  exportCsvAllButton?.addEventListener("click", () => {
+    triggerDownload("export_entries_csv");
+  });
+
+  backupJsonButton?.addEventListener("click", () => {
+    triggerDownload("backup_json");
+  });
+
+  backupSqlButton?.addEventListener("click", () => {
+    triggerDownload("backup_sql");
   });
 
   createForm?.addEventListener("submit", async (event) => {
