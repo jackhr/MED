@@ -19,6 +19,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const scheduleIsActive = document.getElementById("schedule_is_active");
   const scheduleEditModal = document.getElementById("schedule-edit-modal");
   const scheduleEditForm = document.getElementById("schedule-edit-form");
+  const scheduleEditDeleteButton = document.getElementById(
+    "schedule-edit-delete-btn"
+  );
   const scheduleEditToggleButton = document.getElementById(
     "schedule-edit-toggle-btn"
   );
@@ -279,6 +282,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (scheduleEditReminderMessage) {
       scheduleEditReminderMessage.value = "";
     }
+    if (scheduleEditDeleteButton) {
+      scheduleEditDeleteButton.textContent = "Delete Schedule";
+    }
     populateScheduleEditMedicineSelect();
     syncScheduleEditToggleButton();
   }
@@ -350,15 +356,7 @@ document.addEventListener("DOMContentLoaded", () => {
       editButton.dataset.id = String(schedule.id);
       editButton.textContent = "Edit";
 
-      const deleteButton = document.createElement("button");
-      deleteButton.type = "button";
-      deleteButton.className = "table-action schedule-delete-btn";
-      deleteButton.dataset.scheduleAction = "delete";
-      deleteButton.dataset.id = String(schedule.id);
-      deleteButton.textContent = "Delete";
-
       actionsCell.appendChild(editButton);
-      actionsCell.appendChild(deleteButton);
       row.appendChild(actionsCell);
       schedulesBody.appendChild(row);
     });
@@ -773,6 +771,43 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  scheduleEditDeleteButton?.addEventListener("click", async () => {
+    const scheduleId = Number(
+      scheduleEditId?.value || currentEditingScheduleId || 0
+    );
+    if (!scheduleId) {
+      showStatus("Missing schedule ID for delete.", "error");
+      return;
+    }
+
+    const shouldDelete = window.confirm("Delete this schedule?");
+    if (!shouldDelete) {
+      return;
+    }
+
+    setScheduleEditFormBusy(true);
+    if (scheduleEditDeleteButton) {
+      scheduleEditDeleteButton.textContent = "Deleting...";
+    }
+
+    try {
+      await apiRequest("schedule_delete", {
+        method: "POST",
+        data: { id: scheduleId },
+      });
+      closeScheduleEditModal();
+      showStatus("Schedule deleted.");
+      await loadSchedules();
+    } catch (error) {
+      showStatus(error.message, "error");
+    } finally {
+      setScheduleEditFormBusy(false);
+      if (scheduleEditDeleteButton) {
+        scheduleEditDeleteButton.textContent = "Delete Schedule";
+      }
+    }
+  });
+
   schedulesBody?.addEventListener("click", async (event) => {
     const actionButton = event.target.closest("button[data-schedule-action]");
     if (!actionButton) {
@@ -786,28 +821,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (actionButton.dataset.scheduleAction === "edit") {
       openScheduleEditModal(scheduleId);
-      return;
-    }
-
-    if (actionButton.dataset.scheduleAction === "delete") {
-      const confirmed = window.confirm("Delete this schedule?");
-      if (!confirmed) {
-        return;
-      }
-
-      try {
-        await apiRequest("schedule_delete", {
-          method: "POST",
-          data: { id: scheduleId },
-        });
-        if (currentEditingScheduleId === scheduleId && isScheduleEditModalOpen()) {
-          closeScheduleEditModal();
-        }
-        showStatus("Schedule deleted.");
-        await loadSchedules();
-      } catch (error) {
-        showStatus(error.message, "error");
-      }
       return;
     }
 

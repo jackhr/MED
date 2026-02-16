@@ -124,7 +124,7 @@ $signedInUsername = Auth::displayLabel() ?? '';
                             >
                         </div>
 
-                        <div>
+                        <div id="schedule-dosage-wrap">
                             <label for="schedule_dosage_value">Dosage</label>
                             <div class="dosage-fields">
                                 <input id="schedule_dosage_value" name="schedule_dosage_value" type="number" min="0.01" step="0.01" value="20" required>
@@ -231,6 +231,7 @@ $signedInUsername = Auth::displayLabel() ?? '';
                 </div>
 
                 <div class="modal-actions">
+                    <button id="schedule-edit-delete-btn" type="button" class="danger-btn">Delete Schedule</button>
                     <button id="schedule-edit-toggle-btn" type="button" class="ghost-btn" hidden>Pause Schedule</button>
                     <button id="schedule-edit-submit-btn" class="primary-btn" type="submit">Save Schedule</button>
                     <button type="button" class="ghost-btn" data-close-schedule-modal="true">Cancel</button>
