@@ -13,7 +13,37 @@ document.addEventListener("DOMContentLoaded", () => {
   const scheduleDosageValue = document.getElementById("schedule_dosage_value");
   const scheduleDosageUnit = document.getElementById("schedule_dosage_unit");
   const scheduleTimeOfDay = document.getElementById("schedule_time_of_day");
+  const scheduleReminderMessage = document.getElementById(
+    "schedule_reminder_message"
+  );
   const scheduleIsActive = document.getElementById("schedule_is_active");
+  const scheduleEditModal = document.getElementById("schedule-edit-modal");
+  const scheduleEditForm = document.getElementById("schedule-edit-form");
+  const scheduleEditToggleButton = document.getElementById(
+    "schedule-edit-toggle-btn"
+  );
+  const scheduleEditSubmitButton = document.getElementById(
+    "schedule-edit-submit-btn"
+  );
+  const scheduleEditId = document.getElementById("schedule_edit_id");
+  const scheduleEditMedicineSelect = document.getElementById(
+    "schedule_edit_medicine_id"
+  );
+  const scheduleEditDosageValue = document.getElementById(
+    "schedule_edit_dosage_value"
+  );
+  const scheduleEditDosageUnit = document.getElementById(
+    "schedule_edit_dosage_unit"
+  );
+  const scheduleEditTimeOfDay = document.getElementById(
+    "schedule_edit_time_of_day"
+  );
+  const scheduleEditReminderMessage = document.getElementById(
+    "schedule_edit_reminder_message"
+  );
+  const scheduleEditIsActive = document.getElementById(
+    "schedule_edit_is_active"
+  );
   const scheduleMeta = document.getElementById("schedule-meta");
   const pushStatus = document.getElementById("push-status");
   const enablePushButton = document.getElementById("enable-push-btn");
@@ -27,6 +57,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let bannerTimer = null;
   let medicines = [];
   let schedules = [];
+  let currentEditingScheduleId = null;
   let serviceWorkerRegistration = null;
   let currentPushSubscription = null;
 
@@ -111,6 +142,156 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function findScheduleById(scheduleId) {
+    return (
+      schedules.find((schedule) => Number(schedule.id) === Number(scheduleId)) || null
+    );
+  }
+
+  function syncScheduleEditToggleButton() {
+    if (!scheduleEditToggleButton) {
+      return;
+    }
+
+    const schedule =
+      currentEditingScheduleId !== null
+        ? findScheduleById(currentEditingScheduleId)
+        : null;
+
+    if (!schedule) {
+      scheduleEditToggleButton.hidden = true;
+      scheduleEditToggleButton.disabled = true;
+      scheduleEditToggleButton.textContent = "Pause Schedule";
+      scheduleEditToggleButton.dataset.active = "";
+      return;
+    }
+
+    const isActive = Boolean(schedule.is_active);
+    scheduleEditToggleButton.hidden = false;
+    scheduleEditToggleButton.disabled = false;
+    scheduleEditToggleButton.dataset.active = isActive ? "1" : "0";
+    scheduleEditToggleButton.textContent = isActive
+      ? "Pause Schedule"
+      : "Resume Schedule";
+  }
+
+  function isScheduleEditModalOpen() {
+    return Boolean(scheduleEditModal && !scheduleEditModal.hidden);
+  }
+
+  function openScheduleEditModal(scheduleId) {
+    const schedule = findScheduleById(scheduleId);
+    if (!schedule) {
+      showStatus("Schedule not found. Refresh and try again.", "error");
+      return;
+    }
+
+    currentEditingScheduleId = Number(schedule.id);
+    if (scheduleEditId) {
+      scheduleEditId.value = String(schedule.id);
+    }
+
+    populateScheduleEditMedicineSelect(String(schedule.medicine_id || ""));
+
+    if (scheduleEditDosageValue) {
+      scheduleEditDosageValue.value = String(schedule.dosage_value || "20");
+    }
+    if (scheduleEditDosageUnit) {
+      scheduleEditDosageUnit.value = String(schedule.dosage_unit || "mg");
+    }
+    if (scheduleEditTimeOfDay) {
+      scheduleEditTimeOfDay.value = String(schedule.time_of_day_input || "").slice(0, 5);
+    }
+    if (scheduleEditReminderMessage) {
+      scheduleEditReminderMessage.value = String(schedule.reminder_message || "");
+    }
+    if (scheduleEditIsActive) {
+      scheduleEditIsActive.checked = Boolean(schedule.is_active);
+    }
+    if (scheduleEditSubmitButton) {
+      scheduleEditSubmitButton.textContent = "Save Schedule";
+    }
+    syncScheduleEditToggleButton();
+    if (scheduleEditModal) {
+      scheduleEditModal.hidden = false;
+      body.classList.add("modal-open");
+    }
+  }
+
+  function populateMedicineSelect(selectElement, preferredValue = "") {
+    if (!selectElement) {
+      return;
+    }
+
+    const selectedValue =
+      preferredValue !== "" ? preferredValue : String(selectElement.value || "");
+    selectElement.innerHTML = "";
+
+    if (!medicines.length) {
+      const option = new Option("No medicine types yet", "");
+      option.disabled = true;
+      option.selected = true;
+      selectElement.add(option);
+      return;
+    }
+
+    medicines.forEach((medicine) => {
+      selectElement.add(new Option(medicine.name, String(medicine.id)));
+    });
+
+    if (
+      selectedValue !== "" &&
+      medicines.some((item) => String(item.id) === selectedValue)
+    ) {
+      selectElement.value = selectedValue;
+      return;
+    }
+
+    selectElement.value = String(medicines[0].id);
+  }
+
+  function populateScheduleMedicineSelect() {
+    populateMedicineSelect(scheduleMedicineSelect);
+  }
+
+  function populateScheduleEditMedicineSelect(preferredValue = "") {
+    populateMedicineSelect(scheduleEditMedicineSelect, preferredValue);
+  }
+
+  function resetScheduleEditForm() {
+    if (!scheduleEditForm) {
+      return;
+    }
+
+    scheduleEditForm.reset();
+    if (scheduleEditId) {
+      scheduleEditId.value = "";
+    }
+    if (scheduleEditDosageValue) {
+      scheduleEditDosageValue.value = "20";
+    }
+    if (scheduleEditDosageUnit) {
+      scheduleEditDosageUnit.value = "mg";
+    }
+    if (scheduleEditIsActive) {
+      scheduleEditIsActive.checked = true;
+    }
+    if (scheduleEditReminderMessage) {
+      scheduleEditReminderMessage.value = "";
+    }
+    populateScheduleEditMedicineSelect();
+    syncScheduleEditToggleButton();
+  }
+
+  function closeScheduleEditModal() {
+    if (scheduleEditModal) {
+      scheduleEditModal.hidden = true;
+      body.classList.remove("modal-open");
+    }
+    currentEditingScheduleId = null;
+    resetScheduleEditForm();
+  }
+
   function createCell(text, className = "") {
     const cell = document.createElement("td");
     cell.textContent = text == null || text === "" ? "-" : String(text);
@@ -118,34 +299,6 @@ document.addEventListener("DOMContentLoaded", () => {
       cell.className = className;
     }
     return cell;
-  }
-
-  function populateScheduleMedicineSelect() {
-    if (!scheduleMedicineSelect) {
-      return;
-    }
-
-    const previousValue = scheduleMedicineSelect.value;
-    scheduleMedicineSelect.innerHTML = "";
-
-    if (!medicines.length) {
-      const option = new Option("No medicine types yet", "");
-      option.disabled = true;
-      option.selected = true;
-      scheduleMedicineSelect.add(option);
-      return;
-    }
-
-    medicines.forEach((medicine) => {
-      scheduleMedicineSelect.add(new Option(medicine.name, String(medicine.id)));
-    });
-
-    if (previousValue && medicines.some((item) => String(item.id) === previousValue)) {
-      scheduleMedicineSelect.value = previousValue;
-      return;
-    }
-
-    scheduleMedicineSelect.value = String(medicines[0].id);
   }
 
   async function loadMedicines() {
@@ -160,6 +313,7 @@ document.addEventListener("DOMContentLoaded", () => {
       : [];
 
     populateScheduleMedicineSelect();
+    populateScheduleEditMedicineSelect();
   }
 
   function renderSchedules(rows) {
@@ -173,7 +327,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const emptyRow = document.createElement("tr");
       const emptyCell = document.createElement("td");
       emptyCell.className = "empty-cell";
-      emptyCell.colSpan = 5;
+      emptyCell.colSpan = 6;
       emptyCell.textContent = "No schedules yet.";
       emptyRow.appendChild(emptyCell);
       schedulesBody.appendChild(emptyRow);
@@ -185,16 +339,16 @@ document.addEventListener("DOMContentLoaded", () => {
       row.appendChild(createCell(schedule.time_label || schedule.time_of_day_input || "-"));
       row.appendChild(createCell(schedule.medicine_name || "-"));
       row.appendChild(createCell(schedule.dosage_display || "-"));
+      row.appendChild(createCell(schedule.reminder_message || ""));
       row.appendChild(createCell(schedule.is_active ? "Active" : "Paused"));
 
       const actionsCell = document.createElement("td");
-      const toggleButton = document.createElement("button");
-      toggleButton.type = "button";
-      toggleButton.className = "table-action";
-      toggleButton.dataset.scheduleAction = "toggle";
-      toggleButton.dataset.id = String(schedule.id);
-      toggleButton.dataset.active = schedule.is_active ? "1" : "0";
-      toggleButton.textContent = schedule.is_active ? "Pause" : "Resume";
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.className = "table-action";
+      editButton.dataset.scheduleAction = "edit";
+      editButton.dataset.id = String(schedule.id);
+      editButton.textContent = "Edit";
 
       const deleteButton = document.createElement("button");
       deleteButton.type = "button";
@@ -203,7 +357,7 @@ document.addEventListener("DOMContentLoaded", () => {
       deleteButton.dataset.id = String(schedule.id);
       deleteButton.textContent = "Delete";
 
-      actionsCell.appendChild(toggleButton);
+      actionsCell.appendChild(editButton);
       actionsCell.appendChild(deleteButton);
       row.appendChild(actionsCell);
       schedulesBody.appendChild(row);
@@ -219,6 +373,15 @@ document.addEventListener("DOMContentLoaded", () => {
     schedules = Array.isArray(payload.schedules) ? payload.schedules : [];
     renderSchedules(schedules);
 
+    if (
+      currentEditingScheduleId !== null &&
+      !findScheduleById(currentEditingScheduleId)
+    ) {
+      closeScheduleEditModal();
+    } else if (isScheduleEditModalOpen()) {
+      syncScheduleEditToggleButton();
+    }
+
     const activeCount = schedules.filter((schedule) => schedule.is_active).length;
     scheduleMeta.textContent = `${schedules.length} schedule${
       schedules.length === 1 ? "" : "s"
@@ -232,6 +395,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
     scheduleForm.querySelectorAll("input, select, button").forEach((element) => {
       if (element.id === "schedule_is_active") {
+        return;
+      }
+      element.disabled = isBusy;
+    });
+  }
+
+  function setScheduleEditFormBusy(isBusy) {
+    if (!scheduleEditForm) {
+      return;
+    }
+
+    scheduleEditForm.querySelectorAll("input, select, button").forEach((element) => {
+      if (element.id === "schedule_edit_is_active") {
         return;
       }
       element.disabled = isBusy;
@@ -259,6 +435,9 @@ document.addEventListener("DOMContentLoaded", () => {
       scheduleTimeOfDay.value = `${String(now.getHours()).padStart(2, "0")}:${String(
         now.getMinutes()
       ).padStart(2, "0")}`;
+    }
+    if (scheduleReminderMessage) {
+      scheduleReminderMessage.value = "";
     }
 
     populateScheduleMedicineSelect();
@@ -447,7 +626,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (schedulesBody) {
       schedulesBody.innerHTML =
-        '<tr><td class="empty-cell" colspan="5">Database unavailable.</td></tr>';
+        '<tr><td class="empty-cell" colspan="6">Database unavailable.</td></tr>';
     }
     updatePushStatus("Database unavailable.", "error");
     return;
@@ -466,6 +645,7 @@ document.addEventListener("DOMContentLoaded", () => {
       dosage_value: String(scheduleDosageValue?.value || "").trim(),
       dosage_unit: String(scheduleDosageUnit?.value || "").trim(),
       time_of_day: String(scheduleTimeOfDay?.value || "").trim(),
+      reminder_message: String(scheduleReminderMessage?.value || "").trim(),
       is_active: scheduleIsActive?.checked ? 1 : 0,
     };
 
@@ -476,7 +656,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     setScheduleFormBusy(true);
     if (scheduleSubmitButton) {
-      scheduleSubmitButton.textContent = "Saving...";
+      scheduleSubmitButton.textContent = "Adding...";
     }
 
     try {
@@ -498,6 +678,101 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  scheduleEditForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const scheduleId = Number(
+      scheduleEditId?.value || currentEditingScheduleId || 0
+    );
+    const payload = {
+      id: scheduleId,
+      medicine_id: Number(scheduleEditMedicineSelect?.value || 0),
+      dosage_value: String(scheduleEditDosageValue?.value || "").trim(),
+      dosage_unit: String(scheduleEditDosageUnit?.value || "").trim(),
+      time_of_day: String(scheduleEditTimeOfDay?.value || "").trim(),
+      reminder_message: String(scheduleEditReminderMessage?.value || "").trim(),
+      is_active: scheduleEditIsActive?.checked ? 1 : 0,
+    };
+
+    if (
+      !payload.id ||
+      !payload.medicine_id ||
+      !payload.dosage_value ||
+      !payload.dosage_unit ||
+      !payload.time_of_day
+    ) {
+      showStatus("Please complete all schedule edit fields.", "error");
+      return;
+    }
+
+    setScheduleEditFormBusy(true);
+    if (scheduleEditSubmitButton) {
+      scheduleEditSubmitButton.textContent = "Saving...";
+    }
+
+    try {
+      await apiRequest("schedule_update", {
+        method: "POST",
+        data: payload,
+      });
+      closeScheduleEditModal();
+      showStatus("Schedule updated.");
+      await loadSchedules();
+    } catch (error) {
+      showStatus(error.message, "error");
+    } finally {
+      setScheduleEditFormBusy(false);
+      if (scheduleEditSubmitButton) {
+        scheduleEditSubmitButton.textContent = "Save Schedule";
+      }
+    }
+  });
+
+  scheduleEditToggleButton?.addEventListener("click", async () => {
+    const schedule =
+      currentEditingScheduleId !== null
+        ? findScheduleById(currentEditingScheduleId)
+        : null;
+
+    if (!schedule) {
+      closeScheduleEditModal();
+      showStatus("Schedule not found. Refresh and try again.", "error");
+      return;
+    }
+
+    const nextActive = schedule.is_active ? 0 : 1;
+
+    setScheduleEditFormBusy(true);
+    if (scheduleEditToggleButton) {
+      scheduleEditToggleButton.textContent = schedule.is_active
+        ? "Pausing..."
+        : "Resuming...";
+    }
+
+    try {
+      await apiRequest("schedule_toggle", {
+        method: "POST",
+        data: {
+          id: Number(schedule.id),
+          is_active: nextActive,
+        },
+      });
+
+      await loadSchedules();
+      const refreshedSchedule = findScheduleById(Number(schedule.id));
+      if (scheduleEditIsActive) {
+        scheduleEditIsActive.checked = Boolean(refreshedSchedule?.is_active ?? nextActive);
+      }
+      syncScheduleEditToggleButton();
+      showStatus(nextActive === 1 ? "Schedule resumed." : "Schedule paused.");
+    } catch (error) {
+      showStatus(error.message, "error");
+    } finally {
+      setScheduleEditFormBusy(false);
+      syncScheduleEditToggleButton();
+    }
+  });
+
   schedulesBody?.addEventListener("click", async (event) => {
     const actionButton = event.target.closest("button[data-schedule-action]");
     if (!actionButton) {
@@ -506,6 +781,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const scheduleId = Number(actionButton.dataset.id || 0);
     if (!scheduleId) {
+      return;
+    }
+
+    if (actionButton.dataset.scheduleAction === "edit") {
+      openScheduleEditModal(scheduleId);
       return;
     }
 
@@ -520,6 +800,9 @@ document.addEventListener("DOMContentLoaded", () => {
           method: "POST",
           data: { id: scheduleId },
         });
+        if (currentEditingScheduleId === scheduleId && isScheduleEditModalOpen()) {
+          closeScheduleEditModal();
+        }
         showStatus("Schedule deleted.");
         await loadSchedules();
       } catch (error) {
@@ -528,21 +811,18 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    if (actionButton.dataset.scheduleAction === "toggle") {
-      const currentActive = actionButton.dataset.active === "1";
-      try {
-        await apiRequest("schedule_toggle", {
-          method: "POST",
-          data: {
-            id: scheduleId,
-            is_active: currentActive ? 0 : 1,
-          },
-        });
-        showStatus(currentActive ? "Schedule paused." : "Schedule resumed.");
-        await loadSchedules();
-      } catch (error) {
-        showStatus(error.message, "error");
-      }
+  });
+
+  scheduleEditModal?.addEventListener("click", (event) => {
+    const closeButton = event.target.closest("[data-close-schedule-modal='true']");
+    if (closeButton) {
+      closeScheduleEditModal();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && isScheduleEditModalOpen()) {
+      closeScheduleEditModal();
     }
   });
 
@@ -608,6 +888,7 @@ document.addEventListener("DOMContentLoaded", () => {
   Promise.all([loadMedicines(), loadSchedules()])
     .then(async () => {
       resetScheduleForm();
+      closeScheduleEditModal();
       await initializePushState();
     })
     .catch((error) => {
@@ -617,7 +898,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (schedulesBody) {
         schedulesBody.innerHTML =
-          '<tr><td class="empty-cell" colspan="5">Schedules unavailable.</td></tr>';
+          '<tr><td class="empty-cell" colspan="6">Schedules unavailable.</td></tr>';
       }
     });
 });

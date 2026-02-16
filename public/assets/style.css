@@ -760,6 +760,13 @@ h2 {
     width: auto;
 }
 
+.schedule-form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+}
+
 form {
     display: grid;
     gap    : 0.55rem;

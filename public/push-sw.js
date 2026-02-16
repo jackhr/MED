@@ -1,35 +1,66 @@
 self.addEventListener("push", (event) => {
-  let payload = {
+  const fallbackPayload = {
     title: "Medicine reminder",
     body: "It is time to log a scheduled dose.",
     url: "/index.php",
   };
 
-  if (event.data) {
-    try {
-      const parsed = event.data.json();
-      payload = {
-        ...payload,
-        ...parsed,
-      };
-    } catch (error) {
-      const text = event.data.text();
-      if (text && text.trim() !== "") {
-        payload.body = text.trim();
+  const loadPayload = async () => {
+    let payload = { ...fallbackPayload };
+
+    if (event.data) {
+      try {
+        const parsed = event.data.json();
+        payload = {
+          ...payload,
+          ...parsed,
+        };
+      } catch (error) {
+        const text = event.data.text();
+        if (text && text.trim() !== "") {
+          payload.body = text.trim();
+        }
       }
     }
-  }
 
-  const notificationOptions = {
-    body: payload.body,
-    data: {
-      url: payload.url || "/index.php",
-    },
-    renotify: true,
-    tag: "medicine-reminder",
+    try {
+      const response = await fetch("/index.php?api=push_message", {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        return payload;
+      }
+
+      const apiPayload = await response.json();
+      if (!apiPayload || apiPayload.ok !== true || !apiPayload.notification) {
+        return payload;
+      }
+
+      return {
+        ...payload,
+        ...apiPayload.notification,
+      };
+    } catch (error) {
+      return payload;
+    }
   };
 
-  event.waitUntil(self.registration.showNotification(payload.title, notificationOptions));
+  event.waitUntil(
+    loadPayload().then((payload) => {
+      const notificationOptions = {
+        body: payload.body,
+        data: {
+          url: payload.url || "/index.php",
+        },
+        renotify: true,
+        tag: "medicine-reminder",
+      };
+
+      return self.registration.showNotification(payload.title, notificationOptions);
+    })
+  );
 });
 
 self.addEventListener("notificationclick", (event) => {

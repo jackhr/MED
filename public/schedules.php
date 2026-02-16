@@ -114,6 +114,17 @@ $signedInUsername = Auth::displayLabel() ?? '';
                         </div>
 
                         <div>
+                            <label for="schedule_reminder_message">Reminder Message (Optional)</label>
+                            <input
+                                id="schedule_reminder_message"
+                                name="schedule_reminder_message"
+                                type="text"
+                                maxlength="255"
+                                placeholder="e.g. Please log morning dose now."
+                            >
+                        </div>
+
+                        <div>
                             <label for="schedule_dosage_value">Dosage</label>
                             <div class="dosage-fields">
                                 <input id="schedule_dosage_value" name="schedule_dosage_value" type="number" min="0.01" step="0.01" value="20" required>
@@ -134,7 +145,9 @@ $signedInUsername = Auth::displayLabel() ?? '';
                         </div>
                     </div>
 
-                    <button id="schedule-submit-btn" class="primary-btn" type="submit">Add Schedule</button>
+                    <div class="schedule-form-actions">
+                        <button id="schedule-submit-btn" class="primary-btn" type="submit">Add Schedule</button>
+                    </div>
                 </form>
             </article>
 
@@ -147,13 +160,14 @@ $signedInUsername = Auth::displayLabel() ?? '';
                                 <th>Time</th>
                                 <th>Medicine</th>
                                 <th>Dosage</th>
+                                <th>Message</th>
                                 <th>Status</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="schedules-body">
                             <tr>
-                                <td class="empty-cell" colspan="5">Loading schedules...</td>
+                                <td class="empty-cell" colspan="6">Loading schedules...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -161,5 +175,68 @@ $signedInUsername = Auth::displayLabel() ?? '';
             </article>
         </section>
     </main>
+
+    <section id="schedule-edit-modal" class="modal" hidden>
+        <div class="modal-backdrop" data-close-schedule-modal="true"></div>
+        <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="schedule-edit-modal-title">
+            <div class="modal-header">
+                <h3 id="schedule-edit-modal-title">Edit Schedule</h3>
+                <button type="button" class="ghost-btn" data-close-schedule-modal="true">Close</button>
+            </div>
+
+            <form id="schedule-edit-form" novalidate>
+                <input id="schedule_edit_id" name="schedule_edit_id" type="hidden">
+
+                <div class="schedule-form-grid">
+                    <div>
+                        <label for="schedule_edit_medicine_id">Medicine</label>
+                        <select id="schedule_edit_medicine_id" name="schedule_edit_medicine_id" required></select>
+                    </div>
+
+                    <div>
+                        <label for="schedule_edit_time_of_day">Reminder Time</label>
+                        <input id="schedule_edit_time_of_day" name="schedule_edit_time_of_day" type="time" required>
+                    </div>
+
+                    <div>
+                        <label for="schedule_edit_reminder_message">Reminder Message (Optional)</label>
+                        <input
+                            id="schedule_edit_reminder_message"
+                            name="schedule_edit_reminder_message"
+                            type="text"
+                            maxlength="255"
+                            placeholder="e.g. Please log morning dose now."
+                        >
+                    </div>
+
+                    <div>
+                        <label for="schedule_edit_dosage_value">Dosage</label>
+                        <div class="dosage-fields">
+                            <input id="schedule_edit_dosage_value" name="schedule_edit_dosage_value" type="number" min="0.01" step="0.01" required>
+                            <select id="schedule_edit_dosage_unit" name="schedule_edit_dosage_unit" required>
+                                <option value="mg">mg</option>
+                                <option value="ml">ml</option>
+                                <option value="g">g</option>
+                                <option value="mcg">mcg</option>
+                                <option value="tablet">tablet</option>
+                                <option value="drop">drop</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="schedule-active-wrap">
+                        <label for="schedule_edit_is_active">Enabled</label>
+                        <input id="schedule_edit_is_active" name="schedule_edit_is_active" type="checkbox">
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button id="schedule-edit-toggle-btn" type="button" class="ghost-btn" hidden>Pause Schedule</button>
+                    <button id="schedule-edit-submit-btn" class="primary-btn" type="submit">Save Schedule</button>
+                    <button type="button" class="ghost-btn" data-close-schedule-modal="true">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </section>
 </body>
 </html>

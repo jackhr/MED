@@ -1198,6 +1198,7 @@ function normalizeSchedulePayload(array $payload): array
         'dosage_value' => trim((string) ($payload['dosage_value'] ?? '20')),
         'dosage_unit' => strtolower(trim((string) ($payload['dosage_unit'] ?? 'mg'))),
         'time_of_day' => trim((string) ($payload['time_of_day'] ?? '')),
+        'reminder_message' => utf8Truncate(trim((string) ($payload['reminder_message'] ?? '')), 255),
         'is_active' => isset($payload['is_active']) ? (int) $payload['is_active'] : 1,
     ];
 }
@@ -1246,6 +1247,10 @@ function validateSchedulePayload(array $payload, PDO $pdo, array $allowedDosageU
         $errors[] = 'Reminder time must be in HH:MM format.';
     }
 
+    if (utf8Length($data['reminder_message']) > 255) {
+        $errors[] = 'Reminder message must be 255 characters or less.';
+    }
+
     return [
         'errors' => $errors,
         'medicine_name' => $medicineName,
@@ -1258,6 +1263,7 @@ function validateSchedulePayload(array $payload, PDO $pdo, array $allowedDosageU
 function serializeSchedule(array $row): array
 {
     $timeOfDay = (string) ($row['time_of_day'] ?? '00:00:00');
+    $reminderMessage = trim((string) ($row['reminder_message'] ?? ''));
 
     return [
         'id' => (int) ($row['id'] ?? 0),
@@ -1272,6 +1278,7 @@ function serializeSchedule(array $row): array
         'time_of_day' => $timeOfDay,
         'time_of_day_input' => substr($timeOfDay, 0, 5),
         'time_label' => formatTimeOnly('1970-01-01 ' . $timeOfDay),
+        'reminder_message' => $reminderMessage !== '' ? $reminderMessage : null,
         'is_active' => (int) ($row['is_active'] ?? 0) === 1,
         'created_at' => (string) ($row['created_at'] ?? ''),
         'updated_at' => (string) ($row['updated_at'] ?? ''),
@@ -1288,6 +1295,7 @@ function loadDoseSchedules(PDO $pdo, int $userId): array
                 s.dosage_value,
                 s.dosage_unit,
                 s.time_of_day,
+                s.reminder_message,
                 s.is_active,
                 s.created_at,
                 s.updated_at
@@ -1452,6 +1460,7 @@ function processDueReminders(PDO $pdo, ?int $userId = null): array
                      s.dosage_value,
                      s.dosage_unit,
                      s.time_of_day,
+                     s.reminder_message,
                      s.is_active
               FROM dose_schedules s
               INNER JOIN medicines m ON m.id = s.medicine_id
@@ -1545,6 +1554,49 @@ function processDueReminders(PDO $pdo, ?int $userId = null): array
         'window_minutes' => $windowMinutes,
         'processed_at' => $now->format(DateTimeInterface::ATOM),
     ];
+}
+
+function loadLatestPushNotificationForUser(PDO $pdo, int $userId): array
+{
+    $defaultNotification = [
+        'title' => 'Medicine reminder',
+        'body' => 'It is time to log a scheduled dose.',
+        'url' => '/index.php',
+    ];
+
+    $windowMinutesRaw = (int) (Env::get('REMINDER_WINDOW_MINUTES', '5') ?? 5);
+    $windowMinutes = max(1, min(30, $windowMinutesRaw));
+    $threshold = (new DateTimeImmutable('now'))
+        ->sub(new DateInterval('PT' . $windowMinutes . 'M'))
+        ->format('Y-m-d H:i:s');
+
+    $statement = $pdo->prepare(
+        'SELECT d.scheduled_for,
+                s.reminder_message
+         FROM reminder_dispatches d
+         INNER JOIN dose_schedules s ON s.id = d.schedule_id
+         WHERE s.user_id = :user_id
+           AND d.scheduled_for >= :threshold
+         ORDER BY d.scheduled_for DESC, d.id DESC
+         LIMIT 1'
+    );
+    $statement->execute([
+        ':user_id' => $userId,
+        ':threshold' => $threshold,
+    ]);
+    $row = $statement->fetch();
+
+    if (!is_array($row)) {
+        return $defaultNotification;
+    }
+
+    $customMessage = trim((string) ($row['reminder_message'] ?? ''));
+    if ($customMessage === '') {
+        return $defaultNotification;
+    }
+
+    $defaultNotification['body'] = $customMessage;
+    return $defaultNotification;
 }
 
 $dbError = null;
@@ -1914,6 +1966,22 @@ if ($apiAction !== '') {
             exit;
         }
 
+        if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'push_message') {
+            if ($currentUserId === null) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Authentication required.',
+                ], 401);
+                exit;
+            }
+
+            jsonResponse([
+                'ok' => true,
+                'notification' => loadLatestPushNotificationForUser($pdo, $currentUserId),
+            ]);
+            exit;
+        }
+
         if (
             in_array($_SERVER['REQUEST_METHOD'], ['GET', 'POST'], true)
             && $apiAction === 'process_reminders'
@@ -1962,8 +2030,8 @@ if ($apiAction !== '') {
 
             $data = $validated['data'];
             $statement = $pdo->prepare(
-                'INSERT INTO dose_schedules (user_id, medicine_id, dosage_value, dosage_unit, time_of_day, is_active)
-                 VALUES (:user_id, :medicine_id, :dosage_value, :dosage_unit, :time_of_day, :is_active)'
+                'INSERT INTO dose_schedules (user_id, medicine_id, dosage_value, dosage_unit, time_of_day, reminder_message, is_active)
+                 VALUES (:user_id, :medicine_id, :dosage_value, :dosage_unit, :time_of_day, :reminder_message, :is_active)'
             );
             $statement->execute([
                 ':user_id' => $currentUserId,
@@ -1971,6 +2039,7 @@ if ($apiAction !== '') {
                 ':dosage_value' => $validated['dosage_value_for_db'],
                 ':dosage_unit' => $data['dosage_unit'],
                 ':time_of_day' => $validated['time_of_day_for_db'],
+                ':reminder_message' => $data['reminder_message'] !== '' ? $data['reminder_message'] : null,
                 ':is_active' => $data['is_active'] === 0 ? 0 : 1,
             ]);
 
@@ -1978,6 +2047,85 @@ if ($apiAction !== '') {
                 'ok' => true,
                 'message' => 'Schedule created.',
             ], 201);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && $apiAction === 'schedule_update') {
+            if ($currentUserId === null) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Authentication required.',
+                ], 401);
+                exit;
+            }
+
+            $payload = requestPayload();
+            $scheduleId = (int) ($payload['id'] ?? 0);
+            if ($scheduleId <= 0) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Valid schedule id is required.',
+                ], 422);
+                exit;
+            }
+
+            $existsStatement = $pdo->prepare(
+                'SELECT id
+                 FROM dose_schedules
+                 WHERE id = :id
+                   AND user_id = :user_id
+                 LIMIT 1'
+            );
+            $existsStatement->execute([
+                ':id' => $scheduleId,
+                ':user_id' => $currentUserId,
+            ]);
+            if (!is_array($existsStatement->fetch())) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Schedule not found.',
+                ], 404);
+                exit;
+            }
+
+            $validated = validateSchedulePayload($payload, $pdo, $allowedDosageUnits);
+            if ($validated['errors'] !== []) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Validation failed.',
+                    'errors' => $validated['errors'],
+                ], 422);
+                exit;
+            }
+
+            $data = $validated['data'];
+            $statement = $pdo->prepare(
+                'UPDATE dose_schedules
+                 SET medicine_id = :medicine_id,
+                     dosage_value = :dosage_value,
+                     dosage_unit = :dosage_unit,
+                     time_of_day = :time_of_day,
+                     reminder_message = :reminder_message,
+                     is_active = :is_active,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = :id
+                   AND user_id = :user_id'
+            );
+            $statement->execute([
+                ':medicine_id' => $data['medicine_id'],
+                ':dosage_value' => $validated['dosage_value_for_db'],
+                ':dosage_unit' => $data['dosage_unit'],
+                ':time_of_day' => $validated['time_of_day_for_db'],
+                ':reminder_message' => $data['reminder_message'] !== '' ? $data['reminder_message'] : null,
+                ':is_active' => $data['is_active'] === 0 ? 0 : 1,
+                ':id' => $scheduleId,
+                ':user_id' => $currentUserId,
+            ]);
+
+            jsonResponse([
+                'ok' => true,
+                'message' => 'Schedule updated.',
+            ]);
             exit;
         }
 
