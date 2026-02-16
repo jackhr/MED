@@ -323,6 +323,8 @@ function serializeEntry(array $entry): array
     $takenAt = (string) ($entry['taken_at'] ?? '');
     $notes = $entry['notes'] ?? '';
     $createdAt = (string) ($entry['created_at'] ?? '');
+    $loggedByUserId = isset($entry['logged_by_user_id']) ? (int) $entry['logged_by_user_id'] : 0;
+    $loggedByUsername = trim((string) ($entry['logged_by_username'] ?? ''));
     $dosageValue = (string) ($entry['dosage_value'] ?? '0');
     $dosageUnit = (string) ($entry['dosage_unit'] ?? 'mg');
     $rating = (int) ($entry['rating'] ?? 3);
@@ -332,6 +334,8 @@ function serializeEntry(array $entry): array
         'id' => (int) $entry['id'],
         'medicine_id' => (int) $entry['medicine_id'],
         'medicine_name' => (string) $entry['medicine_name'],
+        'logged_by_user_id' => $loggedByUserId > 0 ? $loggedByUserId : null,
+        'logged_by_username' => $loggedByUsername !== '' ? $loggedByUsername : null,
         'dosage_value' => $formattedDosageValue,
         'dosage_unit' => $dosageUnit,
         'dosage_display' => $formattedDosageValue . ' ' . $dosageUnit,
@@ -354,6 +358,8 @@ function findEntry(PDO $pdo, int $id): ?array
         'SELECT l.id,
                 l.medicine_id,
                 m.name AS medicine_name,
+                l.logged_by_user_id,
+                u.username AS logged_by_username,
                 l.dosage_value,
                 l.dosage_unit,
                 l.rating,
@@ -362,6 +368,7 @@ function findEntry(PDO $pdo, int $id): ?array
                 l.created_at
          FROM medicine_intake_logs l
          INNER JOIN medicines m ON m.id = l.medicine_id
+         LEFT JOIN app_users u ON u.id = l.logged_by_user_id
          WHERE l.id = :id
          LIMIT 1'
     );
@@ -472,6 +479,8 @@ function filteredEntriesQuerySql(string $whereSql, string $suffixSql = ''): stri
     return 'SELECT l.id,
                    l.medicine_id,
                    m.name AS medicine_name,
+                   l.logged_by_user_id,
+                   u.username AS logged_by_username,
                    l.dosage_value,
                    l.dosage_unit,
                    l.rating,
@@ -479,7 +488,8 @@ function filteredEntriesQuerySql(string $whereSql, string $suffixSql = ''): stri
                    l.notes,
                    l.created_at
             FROM medicine_intake_logs l
-            INNER JOIN medicines m ON m.id = l.medicine_id'
+            INNER JOIN medicines m ON m.id = l.medicine_id
+            LEFT JOIN app_users u ON u.id = l.logged_by_user_id'
         . $whereSql
         . ' '
         . trim($suffixSql);
@@ -597,6 +607,7 @@ function downloadEntriesCsv(PDO $pdo, array $filters): void
         'Date',
         'Time',
         'Medicine',
+        'Logged By',
         'Dosage Value',
         'Dosage Unit',
         'Dosage',
@@ -612,6 +623,7 @@ function downloadEntriesCsv(PDO $pdo, array $filters): void
             (string) $entry['taken_day_key'],
             (string) $entry['taken_time_display'],
             (string) $entry['medicine_name'],
+            (string) ($entry['logged_by_username'] ?? ''),
             (string) $entry['dosage_value'],
             (string) $entry['dosage_unit'],
             (string) $entry['dosage_display'],
@@ -641,7 +653,7 @@ function downloadBackupJson(PDO $pdo): void
         ->fetchAll();
     $intakes = $pdo
         ->query(
-            'SELECT id, medicine_id, dosage_value, dosage_unit, rating, taken_at, notes, created_at
+            'SELECT id, medicine_id, logged_by_user_id, dosage_value, dosage_unit, rating, taken_at, notes, created_at
              FROM medicine_intake_logs
              ORDER BY id ASC'
         )
@@ -678,7 +690,7 @@ function downloadBackupSql(PDO $pdo): void
         ->fetchAll();
     $intakes = $pdo
         ->query(
-            'SELECT id, medicine_id, dosage_value, dosage_unit, rating, taken_at, notes, created_at
+            'SELECT id, medicine_id, logged_by_user_id, dosage_value, dosage_unit, rating, taken_at, notes, created_at
              FROM medicine_intake_logs
              ORDER BY id ASC'
         )
@@ -711,9 +723,10 @@ function downloadBackupSql(PDO $pdo): void
         $intakeValues = [];
         foreach ($intakes as $row) {
             $intakeValues[] = sprintf(
-                '(%s, %s, %s, %s, %s, %s, %s, %s)',
+                '(%s, %s, %s, %s, %s, %s, %s, %s, %s)',
                 sqlBackupValue($row['id'] ?? null),
                 sqlBackupValue($row['medicine_id'] ?? null),
+                sqlBackupValue($row['logged_by_user_id'] ?? null),
                 sqlBackupValue($row['dosage_value'] ?? null),
                 sqlBackupValue($row['dosage_unit'] ?? null),
                 sqlBackupValue($row['rating'] ?? null),
@@ -723,7 +736,7 @@ function downloadBackupSql(PDO $pdo): void
             );
         }
 
-        $lines[] = 'INSERT INTO medicine_intake_logs (id, medicine_id, dosage_value, dosage_unit, rating, taken_at, notes, created_at) VALUES';
+        $lines[] = 'INSERT INTO medicine_intake_logs (id, medicine_id, logged_by_user_id, dosage_value, dosage_unit, rating, taken_at, notes, created_at) VALUES';
         $lines[] = implode(",\n", $intakeValues) . ';';
         $lines[] = '';
     }
@@ -916,6 +929,8 @@ function loadCalendarMonth(PDO $pdo, string $monthInput): array
         'SELECT l.id,
                 l.medicine_id,
                 m.name AS medicine_name,
+                l.logged_by_user_id,
+                u.username AS logged_by_username,
                 l.dosage_value,
                 l.dosage_unit,
                 l.rating,
@@ -924,6 +939,7 @@ function loadCalendarMonth(PDO $pdo, string $monthInput): array
                 l.created_at
          FROM medicine_intake_logs l
          INNER JOIN medicines m ON m.id = l.medicine_id
+         LEFT JOIN app_users u ON u.id = l.logged_by_user_id
          WHERE l.taken_at >= :start_date
            AND l.taken_at < :end_date
          ORDER BY l.taken_at ASC, l.id ASC'
@@ -1716,11 +1732,12 @@ if ($apiAction !== '') {
 
             $data = $validated['data'];
             $statement = $pdo->prepare(
-                'INSERT INTO medicine_intake_logs (medicine_id, dosage_value, dosage_unit, rating, taken_at, notes)
-                 VALUES (:medicine_id, :dosage_value, :dosage_unit, :rating, :taken_at, :notes)'
+                'INSERT INTO medicine_intake_logs (medicine_id, logged_by_user_id, dosage_value, dosage_unit, rating, taken_at, notes)
+                 VALUES (:medicine_id, :logged_by_user_id, :dosage_value, :dosage_unit, :rating, :taken_at, :notes)'
             );
             $statement->execute([
                 ':medicine_id' => $validated['medicine_id'],
+                ':logged_by_user_id' => $currentUserId,
                 ':dosage_value' => $validated['dosage_value_for_db'],
                 ':dosage_unit' => $data['dosage_unit'],
                 ':rating' => $validated['rating_for_db'],
@@ -2044,6 +2061,7 @@ $dbReady = $pdo instanceof PDO;
                             <tr>
                                 <th>When Taken</th>
                                 <th>Medicine</th>
+                                <th>Logged By</th>
                                 <th>Dosage</th>
                                 <th>Rating</th>
                                 <th>Notes</th>
@@ -2052,7 +2070,7 @@ $dbReady = $pdo instanceof PDO;
                         </thead>
                         <tbody id="entries-body">
                             <tr>
-                                <td class="empty-cell" colspan="6">Loading...</td>
+                                <td class="empty-cell" colspan="7">Loading...</td>
                             </tr>
                         </tbody>
                     </table>

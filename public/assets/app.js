@@ -485,7 +485,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
     cell.className = "empty-cell";
-    cell.colSpan = 6;
+    cell.colSpan = 7;
     cell.textContent = message;
     row.appendChild(cell);
     entriesBody.appendChild(row);
@@ -530,7 +530,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const dayRow = document.createElement("tr");
         dayRow.className = "day-group-row";
         const dayCell = document.createElement("td");
-        dayCell.colSpan = 6;
+        dayCell.colSpan = 7;
         const intakeLabel = group.entries.length === 1 ? "intake" : "intakes";
         const dosageSummary = summarizeGroupDosage(group.entries);
         dayCell.textContent = `${group.dayLabel} (${group.entries.length} ${intakeLabel})${dosageSummary}`;
@@ -550,6 +550,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         row.appendChild(createCell(whenText, isNested ? "nested-time" : ""));
         row.appendChild(createCell(entry.medicine_name));
+        row.appendChild(createCell(entry.logged_by_username || "Unknown"));
         row.appendChild(createCell(entry.dosage_display));
         row.appendChild(
           createCell(entry.rating_display || entry.rating || "-", "rating-cell")

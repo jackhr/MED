@@ -33,6 +33,7 @@ CREATE TABLE app_users (
 CREATE TABLE medicine_intake_logs (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     medicine_id INT UNSIGNED NOT NULL,
+    logged_by_user_id INT UNSIGNED NULL,
     dosage_value DECIMAL(10,2) NOT NULL DEFAULT 20.00,
     dosage_unit VARCHAR(20) NOT NULL DEFAULT 'mg',
     rating TINYINT UNSIGNED NOT NULL DEFAULT 3,
@@ -43,8 +44,13 @@ CREATE TABLE medicine_intake_logs (
         FOREIGN KEY (medicine_id) REFERENCES medicines(id)
         ON UPDATE CASCADE
         ON DELETE RESTRICT,
+    CONSTRAINT fk_logs_user
+        FOREIGN KEY (logged_by_user_id) REFERENCES app_users(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL,
     INDEX idx_intake_taken_at (taken_at),
-    INDEX idx_intake_medicine_id (medicine_id)
+    INDEX idx_intake_medicine_id (medicine_id),
+    INDEX idx_intake_logged_by_user_id (logged_by_user_id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE dose_schedules (
