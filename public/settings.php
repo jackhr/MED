@@ -25,7 +25,7 @@ try {
 }
 
 $dbReady = $pdo instanceof PDO;
-$signedInUsername = Auth::username() ?? '';
+$signedInUsername = Auth::displayLabel() ?? '';
 ?>
 <!doctype html>
 <html lang="en">
@@ -100,6 +100,28 @@ $signedInUsername = Auth::username() ?? '';
                                 autocomplete="username"
                                 value="<?= e($signedInUsername) ?>"
                                 required
+                            >
+                        </div>
+
+                        <div>
+                            <label for="account_display_name">Display Name</label>
+                            <input
+                                id="account_display_name"
+                                name="account_display_name"
+                                type="text"
+                                maxlength="120"
+                                autocomplete="name"
+                            >
+                        </div>
+
+                        <div>
+                            <label for="account_email">Email</label>
+                            <input
+                                id="account_email"
+                                name="account_email"
+                                type="email"
+                                maxlength="190"
+                                autocomplete="email"
                             >
                         </div>
 

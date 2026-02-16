@@ -11,6 +11,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const accountForm = document.getElementById("account-form");
   const accountSubmitButton = document.getElementById("account-submit-btn");
   const accountUsernameInput = document.getElementById("account_username");
+  const accountDisplayNameInput = document.getElementById("account_display_name");
+  const accountEmailInput = document.getElementById("account_email");
   const accountCurrentPasswordInput = document.getElementById(
     "account_current_password"
   );
@@ -19,7 +21,13 @@ document.addEventListener("DOMContentLoaded", () => {
     "account_confirm_password"
   );
 
-  let currentAccountUsername = String(accountUsernameInput?.value || "").trim();
+  const currentAccountProfile = {
+    username: String(accountUsernameInput?.value || "").trim(),
+    display_name: String(accountDisplayNameInput?.value || "").trim(),
+    email: String(accountEmailInput?.value || "")
+      .trim()
+      .toLowerCase(),
+  };
 
   function buildApiUrl(action) {
     const url = new URL(apiPath, window.location.origin);
@@ -94,6 +102,15 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  function accountLabel(account) {
+    const displayName = String(account?.display_name || "").trim();
+    if (displayName !== "") {
+      return displayName;
+    }
+
+    return String(account?.username || "").trim();
+  }
+
   async function loadAccount() {
     if (!accountUsernameInput) {
       return;
@@ -102,16 +119,31 @@ document.addEventListener("DOMContentLoaded", () => {
     const payload = await apiRequest("account");
     const account = payload.account || {};
     const username = String(account.username || "").trim();
+    const displayName = String(account.display_name || "").trim();
+    const email = String(account.email || "")
+      .trim()
+      .toLowerCase();
 
     if (!username) {
       throw new Error("Could not load account username.");
     }
 
     accountUsernameInput.value = username;
-    currentAccountUsername = username;
+    if (accountDisplayNameInput) {
+      accountDisplayNameInput.value = displayName;
+    }
+    if (accountEmailInput) {
+      accountEmailInput.value = email;
+    }
+    currentAccountProfile.username = username;
+    currentAccountProfile.display_name = displayName;
+    currentAccountProfile.email = email;
 
     if (signedInUsernameText) {
-      signedInUsernameText.textContent = username;
+      signedInUsernameText.textContent = accountLabel({
+        username,
+        display_name: displayName,
+      });
     }
 
     if (accountMeta) {
@@ -133,10 +165,16 @@ document.addEventListener("DOMContentLoaded", () => {
     event.preventDefault();
 
     const username = String(accountUsernameInput?.value || "").trim();
+    const displayName = String(accountDisplayNameInput?.value || "").trim();
+    const email = String(accountEmailInput?.value || "")
+      .trim()
+      .toLowerCase();
     const currentPassword = String(accountCurrentPasswordInput?.value || "");
     const newPassword = String(accountNewPasswordInput?.value || "");
     const confirmPassword = String(accountConfirmPasswordInput?.value || "");
-    const hasUsernameChange = username !== currentAccountUsername;
+    const hasUsernameChange = username !== currentAccountProfile.username;
+    const hasDisplayNameChange = displayName !== currentAccountProfile.display_name;
+    const hasEmailChange = email !== currentAccountProfile.email;
     const hasPasswordChange = newPassword !== "" || confirmPassword !== "";
 
     if (username === "") {
@@ -144,8 +182,18 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    if (!hasUsernameChange && !hasPasswordChange) {
+    if (
+      !hasUsernameChange &&
+      !hasDisplayNameChange &&
+      !hasEmailChange &&
+      !hasPasswordChange
+    ) {
       showStatus("No account changes to save.", "error");
+      return;
+    }
+
+    if (email !== "" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      showStatus("Email format is invalid.", "error");
       return;
     }
 
@@ -176,6 +224,8 @@ document.addEventListener("DOMContentLoaded", () => {
         method: "POST",
         data: {
           username,
+          display_name: displayName,
+          email,
           current_password: currentPassword,
           new_password: newPassword,
           confirm_password: confirmPassword,
@@ -183,13 +233,30 @@ document.addEventListener("DOMContentLoaded", () => {
       });
 
       const accountUsername = String(payload?.account?.username || username).trim();
+      const accountDisplayName = String(
+        payload?.account?.display_name || displayName
+      ).trim();
+      const accountEmail = String(payload?.account?.email || email)
+        .trim()
+        .toLowerCase();
       if (accountUsernameInput) {
         accountUsernameInput.value = accountUsername;
       }
-      currentAccountUsername = accountUsername;
+      if (accountDisplayNameInput) {
+        accountDisplayNameInput.value = accountDisplayName;
+      }
+      if (accountEmailInput) {
+        accountEmailInput.value = accountEmail;
+      }
+      currentAccountProfile.username = accountUsername;
+      currentAccountProfile.display_name = accountDisplayName;
+      currentAccountProfile.email = accountEmail;
 
       if (signedInUsernameText) {
-        signedInUsernameText.textContent = accountUsername;
+        signedInUsernameText.textContent = accountLabel({
+          username: accountUsername,
+          display_name: accountDisplayName,
+        });
       }
 
       clearPasswordFields();

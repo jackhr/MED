@@ -37,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         try {
             $statement = $pdo->prepare(
-                'SELECT id, username, password_hash, is_active
+                'SELECT id, username, display_name, password_hash, is_active
                  FROM app_users
                  WHERE username = :username
                  LIMIT 1'
@@ -52,7 +52,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!is_array($user) || !$isActive || !$passwordValid) {
                 $error = 'Invalid username or password.';
             } else {
-                Auth::login((int) $user['id'], (string) $user['username']);
+                Auth::login(
+                    (int) $user['id'],
+                    (string) $user['username'],
+                    isset($user['display_name']) ? (string) $user['display_name'] : null
+                );
 
                 $updateStatement = $pdo->prepare('UPDATE app_users SET last_login_at = NOW() WHERE id = :id');
                 $updateStatement->execute([':id' => (int) $user['id']]);

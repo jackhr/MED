@@ -20,13 +20,15 @@ final class Auth
         session_start();
     }
 
-    public static function login(int $userId, string $username): void
+    public static function login(int $userId, string $username, ?string $displayName = null): void
     {
         self::startSession();
         session_regenerate_id(true);
+        $cleanDisplayName = trim((string) $displayName);
         $_SESSION[self::SESSION_KEY] = [
             'id' => $userId,
-            'username' => $username,
+            'username' => trim($username),
+            'display_name' => $cleanDisplayName !== '' ? $cleanDisplayName : null,
         ];
     }
 
@@ -44,9 +46,38 @@ final class Auth
             return;
         }
 
+        $displayName = trim((string) ($user['display_name'] ?? ''));
         $_SESSION[self::SESSION_KEY] = [
             'id' => $userId,
             'username' => trim($username),
+            'display_name' => $displayName !== '' ? $displayName : null,
+        ];
+    }
+
+    public static function updateDisplayName(?string $displayName): void
+    {
+        self::startSession();
+
+        $user = $_SESSION[self::SESSION_KEY] ?? null;
+        if (!is_array($user)) {
+            return;
+        }
+
+        $userId = (int) ($user['id'] ?? 0);
+        if ($userId <= 0) {
+            return;
+        }
+
+        $username = trim((string) ($user['username'] ?? ''));
+        if ($username === '') {
+            return;
+        }
+
+        $cleanDisplayName = trim((string) $displayName);
+        $_SESSION[self::SESSION_KEY] = [
+            'id' => $userId,
+            'username' => $username,
+            'display_name' => $cleanDisplayName !== '' ? $cleanDisplayName : null,
         ];
     }
 
@@ -87,6 +118,28 @@ final class Auth
         $username = trim((string) ($user['username'] ?? ''));
 
         return $username !== '' ? $username : null;
+    }
+
+    public static function displayName(): ?string
+    {
+        if (!self::isAuthenticated()) {
+            return null;
+        }
+
+        $user = $_SESSION[self::SESSION_KEY] ?? null;
+        $displayName = trim((string) ($user['display_name'] ?? ''));
+
+        return $displayName !== '' ? $displayName : null;
+    }
+
+    public static function displayLabel(): ?string
+    {
+        $displayName = self::displayName();
+        if ($displayName !== null) {
+            return $displayName;
+        }
+
+        return self::username();
     }
 
     public static function requireAuthForPage(string $loginPath = 'login.php'): void

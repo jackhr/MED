@@ -375,7 +375,7 @@ function findEntry(PDO $pdo, int $id): ?array
                 l.medicine_id,
                 m.name AS medicine_name,
                 l.logged_by_user_id,
-                u.username AS logged_by_username,
+                COALESCE(NULLIF(TRIM(u.display_name), ""), u.username) AS logged_by_username,
                 l.dosage_value,
                 l.dosage_unit,
                 l.rating,
@@ -496,7 +496,7 @@ function filteredEntriesQuerySql(string $whereSql, string $suffixSql = ''): stri
                    l.medicine_id,
                    m.name AS medicine_name,
                    l.logged_by_user_id,
-                   u.username AS logged_by_username,
+                   COALESCE(NULLIF(TRIM(u.display_name), ""), u.username) AS logged_by_username,
                    l.dosage_value,
                    l.dosage_unit,
                    l.rating,
@@ -1060,7 +1060,7 @@ function loadCalendarMonth(PDO $pdo, string $monthInput): array
                 l.medicine_id,
                 m.name AS medicine_name,
                 l.logged_by_user_id,
-                u.username AS logged_by_username,
+                COALESCE(NULLIF(TRIM(u.display_name), ""), u.username) AS logged_by_username,
                 l.dosage_value,
                 l.dosage_unit,
                 l.rating,
@@ -1150,7 +1150,7 @@ function loadMedicineOptions(PDO $pdo): array
 function loadAccount(PDO $pdo, int $userId): ?array
 {
     $statement = $pdo->prepare(
-        'SELECT id, username, last_login_at, created_at
+        'SELECT id, username, display_name, email, last_login_at, created_at
          FROM app_users
          WHERE id = :id
            AND is_active = 1
@@ -1165,6 +1165,8 @@ function loadAccount(PDO $pdo, int $userId): ?array
     return [
         'id' => (int) ($row['id'] ?? 0),
         'username' => (string) ($row['username'] ?? ''),
+        'display_name' => isset($row['display_name']) ? trim((string) $row['display_name']) : null,
+        'email' => isset($row['email']) ? trim((string) $row['email']) : null,
         'last_login_at' => isset($row['last_login_at']) ? (string) $row['last_login_at'] : null,
         'created_at' => isset($row['created_at']) ? (string) $row['created_at'] : null,
     ];
@@ -1601,6 +1603,8 @@ if ($apiAction !== '') {
 
             $payload = requestPayload();
             $username = utf8Truncate(trim((string) ($payload['username'] ?? '')), 120);
+            $displayName = utf8Truncate(trim((string) ($payload['display_name'] ?? '')), 120);
+            $email = strtolower(utf8Truncate(trim((string) ($payload['email'] ?? '')), 190));
             $currentPassword = (string) ($payload['current_password'] ?? '');
             $newPassword = (string) ($payload['new_password'] ?? '');
             $confirmPassword = (string) ($payload['confirm_password'] ?? '');
@@ -1614,6 +1618,18 @@ if ($apiAction !== '') {
 
             if ($currentPassword === '') {
                 $errors[] = 'Current password is required.';
+            }
+
+            if ($displayName !== '' && utf8Length($displayName) > 120) {
+                $errors[] = 'Display name must be 120 characters or less.';
+            }
+
+            if ($email !== '') {
+                if (utf8Length($email) > 190) {
+                    $errors[] = 'Email must be 190 characters or less.';
+                } elseif (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                    $errors[] = 'Email format is invalid.';
+                }
             }
 
             $hasPasswordUpdate = $newPassword !== '' || $confirmPassword !== '';
@@ -1643,7 +1659,7 @@ if ($apiAction !== '') {
             }
 
             $userStatement = $pdo->prepare(
-                'SELECT id, username, password_hash, is_active
+                'SELECT id, username, display_name, email, password_hash, is_active
                  FROM app_users
                  WHERE id = :id
                  LIMIT 1'
@@ -1678,11 +1694,15 @@ if ($apiAction !== '') {
             }
 
             $existingUsername = (string) ($user['username'] ?? '');
+            $existingDisplayName = trim((string) ($user['display_name'] ?? ''));
+            $existingEmail = strtolower(trim((string) ($user['email'] ?? '')));
             $updates = [];
             $bindings = [
                 ':id' => $currentUserId,
             ];
             $usernameChanged = false;
+            $displayNameChanged = false;
+            $emailChanged = false;
             $passwordChanged = false;
 
             if (!hash_equals($existingUsername, $username)) {
@@ -1708,6 +1728,39 @@ if ($apiAction !== '') {
                 $updates[] = 'username = :username';
                 $bindings[':username'] = $username;
                 $usernameChanged = true;
+            }
+
+            if (!hash_equals($existingDisplayName, $displayName)) {
+                $updates[] = 'display_name = :display_name';
+                $bindings[':display_name'] = $displayName !== '' ? $displayName : null;
+                $displayNameChanged = true;
+            }
+
+            if (!hash_equals($existingEmail, $email)) {
+                if ($email !== '') {
+                    $emailCheck = $pdo->prepare(
+                        'SELECT id
+                         FROM app_users
+                         WHERE email = :email
+                           AND id <> :id
+                         LIMIT 1'
+                    );
+                    $emailCheck->execute([
+                        ':email' => $email,
+                        ':id' => $currentUserId,
+                    ]);
+                    if (is_array($emailCheck->fetch())) {
+                        jsonResponse([
+                            'ok' => false,
+                            'error' => 'That email is already in use.',
+                        ], 422);
+                        exit;
+                    }
+                }
+
+                $updates[] = 'email = :email';
+                $bindings[':email'] = $email !== '' ? $email : null;
+                $emailChanged = true;
             }
 
             if ($hasPasswordUpdate) {
@@ -1743,11 +1796,20 @@ if ($apiAction !== '') {
             if ($usernameChanged) {
                 Auth::updateUsername($username);
             }
+            if ($displayNameChanged) {
+                Auth::updateDisplayName($displayName !== '' ? $displayName : null);
+            }
 
             $account = loadAccount($pdo, $currentUserId);
             $changeSummary = [];
             if ($usernameChanged) {
                 $changeSummary[] = 'username';
+            }
+            if ($displayNameChanged) {
+                $changeSummary[] = 'display name';
+            }
+            if ($emailChanged) {
+                $changeSummary[] = 'email';
             }
             if ($passwordChanged) {
                 $changeSummary[] = 'password';
@@ -2212,7 +2274,7 @@ if ($apiAction !== '') {
 }
 
 $dbReady = $pdo instanceof PDO;
-$signedInUsername = Auth::username() ?? '';
+$signedInUsername = Auth::displayLabel() ?? '';
 ?>
 <!doctype html>
 <html lang="en">
