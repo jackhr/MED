@@ -166,7 +166,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return `
         <li class="day-entry-item">
           <p class="day-entry-title">${escapeHtml(
-            `${entry.taken_time_display || entry.taken_at_display || "-"} • ${entry.medicine_name || "-"}`
+            `${entry.taken_time_display || entry.taken_at_display || "-"} • ${entry.medicine_name || "-"} • ${entry.logged_by_username || "-"}`
           )}</p>
           <p class="day-entry-meta">${escapeHtml(
             `${entry.dosage_display || "-"} • ${entry.rating_display || entry.rating || "-"}${notesText}`
