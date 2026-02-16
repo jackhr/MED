@@ -2312,6 +2312,7 @@ $signedInUsername = Auth::displayLabel() ?? '';
                 <a class="hamburger-link is-active" href="index.php">Dashboard</a>
                 <a class="hamburger-link" href="trends.php">Trends</a>
                 <a class="hamburger-link" href="calendar.php">Calendar</a>
+                <a class="hamburger-link" href="schedules.php">Schedules</a>
                 <a class="hamburger-link" href="settings.php">Settings</a>
                 <a class="hamburger-link" href="logout.php">Log Out</a>
             </div>
@@ -2510,80 +2511,6 @@ $signedInUsername = Auth::displayLabel() ?? '';
             </article>
         </section>
 
-        <section class="schedule-grid">
-            <article class="card">
-                <div class="section-header">
-                    <h2>Dose Schedules</h2>
-                    <span id="schedule-meta" class="meta-text">Daily reminder times with browser push alerts.</span>
-                </div>
-
-                <div class="push-controls">
-                    <button id="enable-push-btn" type="button" class="ghost-btn">Enable Push Notifications</button>
-                    <button id="disable-push-btn" type="button" class="ghost-btn">Disable Push Notifications</button>
-                    <button id="test-push-btn" type="button" class="ghost-btn">Send Test Push</button>
-                    <button id="run-reminders-btn" type="button" class="ghost-btn">Run Reminder Check</button>
-                </div>
-                <p id="push-status" class="meta-text">Push not configured.</p>
-
-                <form id="schedule-form" novalidate>
-                    <div class="schedule-form-grid">
-                        <div>
-                            <label for="schedule_medicine_id">Medicine</label>
-                            <select id="schedule_medicine_id" name="schedule_medicine_id" required></select>
-                        </div>
-
-                        <div>
-                            <label for="schedule_time_of_day">Reminder Time</label>
-                            <input id="schedule_time_of_day" name="schedule_time_of_day" type="time" required>
-                        </div>
-
-                        <div>
-                            <label for="schedule_dosage_value">Dosage</label>
-                            <div class="dosage-fields">
-                                <input id="schedule_dosage_value" name="schedule_dosage_value" type="number" min="0.01" step="0.01" value="20" required>
-                                <select id="schedule_dosage_unit" name="schedule_dosage_unit" required>
-                                    <option value="mg" selected>mg</option>
-                                    <option value="ml">ml</option>
-                                    <option value="g">g</option>
-                                    <option value="mcg">mcg</option>
-                                    <option value="tablet">tablet</option>
-                                    <option value="drop">drop</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="schedule-active-wrap">
-                            <label for="schedule_is_active">Enabled</label>
-                            <input id="schedule_is_active" name="schedule_is_active" type="checkbox" checked>
-                        </div>
-                    </div>
-
-                    <button id="schedule-submit-btn" class="primary-btn" type="submit">Add Schedule</button>
-                </form>
-            </article>
-
-            <article class="card">
-                <h2>Current Schedules</h2>
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Time</th>
-                                <th>Medicine</th>
-                                <th>Dosage</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="schedules-body">
-                            <tr>
-                                <td class="empty-cell" colspan="5">Loading schedules...</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </article>
-        </section>
     </main>
 
     <section id="edit-modal" class="modal" hidden>

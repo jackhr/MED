@@ -53,6 +53,16 @@ document.addEventListener("DOMContentLoaded", () => {
   const disablePushButton = document.getElementById("disable-push-btn");
   const testPushButton = document.getElementById("test-push-btn");
   const runRemindersButton = document.getElementById("run-reminders-btn");
+  const hasScheduleUi = Boolean(
+    scheduleForm ||
+      schedulesBody ||
+      scheduleMeta ||
+      pushStatus ||
+      enablePushButton ||
+      disablePushButton ||
+      testPushButton ||
+      runRemindersButton
+  );
 
   const modal = document.getElementById("edit-modal");
   const editForm = document.getElementById("edit-intake-form");
@@ -1838,19 +1848,21 @@ document.addEventListener("DOMContentLoaded", () => {
         setMedicinePickerMode(createMedicineContext, "existing");
       }
 
-      resetScheduleForm();
-      try {
-        await loadSchedules();
-      } catch (error) {
-        if (scheduleMeta) {
-          scheduleMeta.textContent = "Schedules unavailable. Run latest DB migrations.";
+      if (hasScheduleUi) {
+        resetScheduleForm();
+        try {
+          await loadSchedules();
+        } catch (error) {
+          if (scheduleMeta) {
+            scheduleMeta.textContent = "Schedules unavailable. Run latest DB migrations.";
+          }
+          if (schedulesBody) {
+            schedulesBody.innerHTML =
+              '<tr><td class="empty-cell" colspan="5">Schedules unavailable.</td></tr>';
+          }
         }
-        if (schedulesBody) {
-          schedulesBody.innerHTML =
-            '<tr><td class="empty-cell" colspan="5">Schedules unavailable.</td></tr>';
-        }
+        await initializePushState();
       }
-      await initializePushState();
     })
     .catch((error) => {
       showStatus(error.message, "error");
