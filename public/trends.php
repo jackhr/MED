@@ -40,19 +40,34 @@ $dbReady = $pdo instanceof PDO;
             apiPath: "index.php"
         };
     </script>
+    <script src="assets/nav.js" defer></script>
     <script src="assets/trends.js" defer></script>
 </head>
 <body data-db-ready="<?= $dbReady ? '1' : '0' ?>">
     <main class="dashboard trends-dashboard">
+        <nav class="hamburger-nav" aria-label="Primary Navigation">
+            <button
+                type="button"
+                class="ghost-btn hamburger-toggle"
+                aria-expanded="false"
+                aria-controls="primary-menu"
+            >
+                <span class="hamburger-icon" aria-hidden="true"></span>
+                Menu
+            </button>
+            <div id="primary-menu" class="hamburger-panel" hidden>
+                <a class="hamburger-link" href="index.php">Dashboard</a>
+                <a class="hamburger-link is-active" href="trends.php">Trends</a>
+                <a class="hamburger-link" href="calendar.php">Calendar</a>
+                <a class="hamburger-link" href="settings.php">Settings</a>
+                <a class="hamburger-link" href="logout.php">Log Out</a>
+            </div>
+        </nav>
+
         <header class="hero card">
             <p class="eyebrow">Medicine Tracker</p>
             <h1>Trends</h1>
             <p>Long-term patterns and summaries to help spot progress over time.</p>
-            <div class="hero-actions">
-                <a class="ghost-btn nav-link" href="index.php">Back To Dashboard</a>
-                <a class="ghost-btn nav-link" href="calendar.php">View Calendar</a>
-                <a class="ghost-btn nav-link" href="logout.php">Log Out</a>
-            </div>
         </header>
 
         <?php if ($dbError !== null): ?>

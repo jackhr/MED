@@ -42,19 +42,34 @@ $initialMonth = (string) ($_GET['month'] ?? '');
             initialMonth: <?= json_encode($initialMonth, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>
         };
     </script>
+    <script src="assets/nav.js" defer></script>
     <script src="assets/calendar.js" defer></script>
 </head>
 <body data-db-ready="<?= $dbReady ? '1' : '0' ?>">
     <main class="dashboard calendar-dashboard">
+        <nav class="hamburger-nav" aria-label="Primary Navigation">
+            <button
+                type="button"
+                class="ghost-btn hamburger-toggle"
+                aria-expanded="false"
+                aria-controls="primary-menu"
+            >
+                <span class="hamburger-icon" aria-hidden="true"></span>
+                Menu
+            </button>
+            <div id="primary-menu" class="hamburger-panel" hidden>
+                <a class="hamburger-link" href="index.php">Dashboard</a>
+                <a class="hamburger-link" href="trends.php">Trends</a>
+                <a class="hamburger-link is-active" href="calendar.php">Calendar</a>
+                <a class="hamburger-link" href="settings.php">Settings</a>
+                <a class="hamburger-link" href="logout.php">Log Out</a>
+            </div>
+        </nav>
+
         <header class="hero card">
             <p class="eyebrow">Medicine Tracker</p>
             <h1>Calendar View</h1>
             <p>Review every intake by date and inspect day-by-day patterns.</p>
-            <div class="hero-actions">
-                <a class="ghost-btn nav-link" href="index.php">Back To Dashboard</a>
-                <a class="ghost-btn nav-link" href="trends.php">View Trends</a>
-                <a class="ghost-btn nav-link" href="logout.php">Log Out</a>
-            </div>
         </header>
 
         <?php if ($dbError !== null): ?>

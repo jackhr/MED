@@ -1147,6 +1147,29 @@ function loadMedicineOptions(PDO $pdo): array
     ));
 }
 
+function loadAccount(PDO $pdo, int $userId): ?array
+{
+    $statement = $pdo->prepare(
+        'SELECT id, username, last_login_at, created_at
+         FROM app_users
+         WHERE id = :id
+           AND is_active = 1
+         LIMIT 1'
+    );
+    $statement->execute([':id' => $userId]);
+    $row = $statement->fetch();
+    if (!is_array($row)) {
+        return null;
+    }
+
+    return [
+        'id' => (int) ($row['id'] ?? 0),
+        'username' => (string) ($row['username'] ?? ''),
+        'last_login_at' => isset($row['last_login_at']) ? (string) $row['last_login_at'] : null,
+        'created_at' => isset($row['created_at']) ? (string) $row['created_at'] : null,
+    ];
+}
+
 function normalizeTimeOfDay(string $value): ?string
 {
     $trimmed = trim($value);
@@ -1541,6 +1564,202 @@ if ($apiAction !== '') {
 
     try {
         $currentUserId = Auth::userId();
+
+        if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'account') {
+            if ($currentUserId === null) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Authentication required.',
+                ], 401);
+                exit;
+            }
+
+            $account = loadAccount($pdo, $currentUserId);
+            if (!is_array($account)) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Account not found.',
+                ], 404);
+                exit;
+            }
+
+            jsonResponse([
+                'ok' => true,
+                'account' => $account,
+            ]);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && $apiAction === 'account_update') {
+            if ($currentUserId === null) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Authentication required.',
+                ], 401);
+                exit;
+            }
+
+            $payload = requestPayload();
+            $username = utf8Truncate(trim((string) ($payload['username'] ?? '')), 120);
+            $currentPassword = (string) ($payload['current_password'] ?? '');
+            $newPassword = (string) ($payload['new_password'] ?? '');
+            $confirmPassword = (string) ($payload['confirm_password'] ?? '');
+            $errors = [];
+
+            if ($username === '') {
+                $errors[] = 'Username is required.';
+            } elseif (utf8Length($username) > 120) {
+                $errors[] = 'Username must be 120 characters or less.';
+            }
+
+            if ($currentPassword === '') {
+                $errors[] = 'Current password is required.';
+            }
+
+            $hasPasswordUpdate = $newPassword !== '' || $confirmPassword !== '';
+            if ($hasPasswordUpdate) {
+                if ($newPassword === '') {
+                    $errors[] = 'New password is required when updating password.';
+                } elseif (utf8Length($newPassword) < 8) {
+                    $errors[] = 'New password must be at least 8 characters.';
+                } elseif (utf8Length($newPassword) > 255) {
+                    $errors[] = 'New password must be 255 characters or less.';
+                }
+
+                if ($confirmPassword === '') {
+                    $errors[] = 'Please confirm the new password.';
+                } elseif (!hash_equals($newPassword, $confirmPassword)) {
+                    $errors[] = 'New password confirmation does not match.';
+                }
+            }
+
+            if ($errors !== []) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Validation failed.',
+                    'errors' => $errors,
+                ], 422);
+                exit;
+            }
+
+            $userStatement = $pdo->prepare(
+                'SELECT id, username, password_hash, is_active
+                 FROM app_users
+                 WHERE id = :id
+                 LIMIT 1'
+            );
+            $userStatement->execute([':id' => $currentUserId]);
+            $user = $userStatement->fetch();
+
+            if (!is_array($user)) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Account not found.',
+                ], 404);
+                exit;
+            }
+
+            $isActive = (int) ($user['is_active'] ?? 0) === 1;
+            if (!$isActive) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'This account is inactive.',
+                ], 403);
+                exit;
+            }
+
+            $storedPasswordHash = (string) ($user['password_hash'] ?? '');
+            if ($storedPasswordHash === '' || !password_verify($currentPassword, $storedPasswordHash)) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Current password is incorrect.',
+                ], 422);
+                exit;
+            }
+
+            $existingUsername = (string) ($user['username'] ?? '');
+            $updates = [];
+            $bindings = [
+                ':id' => $currentUserId,
+            ];
+            $usernameChanged = false;
+            $passwordChanged = false;
+
+            if (!hash_equals($existingUsername, $username)) {
+                $usernameCheck = $pdo->prepare(
+                    'SELECT id
+                     FROM app_users
+                     WHERE username = :username
+                       AND id <> :id
+                     LIMIT 1'
+                );
+                $usernameCheck->execute([
+                    ':username' => $username,
+                    ':id' => $currentUserId,
+                ]);
+                if (is_array($usernameCheck->fetch())) {
+                    jsonResponse([
+                        'ok' => false,
+                        'error' => 'That username is already in use.',
+                    ], 422);
+                    exit;
+                }
+
+                $updates[] = 'username = :username';
+                $bindings[':username'] = $username;
+                $usernameChanged = true;
+            }
+
+            if ($hasPasswordUpdate) {
+                $hashedPassword = password_hash($newPassword, PASSWORD_DEFAULT);
+                if (!is_string($hashedPassword) || $hashedPassword === '') {
+                    throw new RuntimeException('Could not hash the new password.');
+                }
+
+                $updates[] = 'password_hash = :password_hash';
+                $bindings[':password_hash'] = $hashedPassword;
+                $passwordChanged = true;
+            }
+
+            if ($updates === []) {
+                $account = loadAccount($pdo, $currentUserId);
+                jsonResponse([
+                    'ok' => true,
+                    'message' => 'No account changes were needed.',
+                    'account' => $account,
+                ]);
+                exit;
+            }
+
+            $updates[] = 'updated_at = CURRENT_TIMESTAMP';
+
+            $updateStatement = $pdo->prepare(
+                'UPDATE app_users
+                 SET ' . implode(', ', $updates) . '
+                 WHERE id = :id'
+            );
+            $updateStatement->execute($bindings);
+
+            if ($usernameChanged) {
+                Auth::updateUsername($username);
+            }
+
+            $account = loadAccount($pdo, $currentUserId);
+            $changeSummary = [];
+            if ($usernameChanged) {
+                $changeSummary[] = 'username';
+            }
+            if ($passwordChanged) {
+                $changeSummary[] = 'password';
+            }
+
+            jsonResponse([
+                'ok' => true,
+                'message' => 'Updated: ' . implode(' and ', $changeSummary) . '.',
+                'account' => $account,
+            ]);
+            exit;
+        }
 
         if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'dashboard') {
             jsonResponse([
@@ -1993,6 +2212,7 @@ if ($apiAction !== '') {
 }
 
 $dbReady = $pdo instanceof PDO;
+$signedInUsername = Auth::username() ?? '';
 ?>
 <!doctype html>
 <html lang="en">
@@ -2011,19 +2231,37 @@ $dbReady = $pdo instanceof PDO;
             pushConfigured: <?= PushNotifications::isConfigured() ? 'true' : 'false' ?>
         };
     </script>
+    <script src="assets/nav.js" defer></script>
     <script src="assets/app.js" defer></script>
 </head>
 <body data-db-ready="<?= $dbReady ? '1' : '0' ?>">
     <main class="dashboard">
+        <nav class="hamburger-nav" aria-label="Primary Navigation">
+            <button
+                type="button"
+                class="ghost-btn hamburger-toggle"
+                aria-expanded="false"
+                aria-controls="primary-menu"
+            >
+                <span class="hamburger-icon" aria-hidden="true"></span>
+                Menu
+            </button>
+            <div id="primary-menu" class="hamburger-panel" hidden>
+                <a class="hamburger-link is-active" href="index.php">Dashboard</a>
+                <a class="hamburger-link" href="trends.php">Trends</a>
+                <a class="hamburger-link" href="calendar.php">Calendar</a>
+                <a class="hamburger-link" href="settings.php">Settings</a>
+                <a class="hamburger-link" href="logout.php">Log Out</a>
+            </div>
+        </nav>
+
         <header class="hero card">
             <p class="eyebrow">Medicine Tracker</p>
             <h1>Daily Intake Dashboard</h1>
             <p>Monitor progress, log doses quickly, and edit records in place.</p>
-            <div class="hero-actions">
-                <a class="ghost-btn nav-link" href="trends.php">View Trends</a>
-                <a class="ghost-btn nav-link" href="calendar.php">View Calendar</a>
-                <a class="ghost-btn nav-link" href="logout.php">Log Out</a>
-            </div>
+            <?php if ($signedInUsername !== ''): ?>
+                <p class="meta-text">Signed in as <strong><?= e($signedInUsername) ?></strong></p>
+            <?php endif; ?>
         </header>
 
         <?php if ($dbError !== null): ?>

@@ -38,6 +38,85 @@ body.modal-open {
     gap    : 1rem;
 }
 
+.hamburger-nav {
+    position       : relative;
+    display        : flex;
+    justify-content: flex-end;
+    z-index        : 25;
+}
+
+.hamburger-toggle {
+    display    : inline-flex;
+    align-items: center;
+    gap        : 0.5rem;
+    min-width  : 118px;
+}
+
+.hamburger-icon {
+    position : relative;
+    width    : 16px;
+    height   : 2px;
+    background: currentColor;
+    display  : inline-block;
+}
+
+.hamburger-icon::before,
+.hamburger-icon::after {
+    content   : "";
+    position  : absolute;
+    left      : 0;
+    width     : 16px;
+    height    : 2px;
+    background: currentColor;
+}
+
+.hamburger-icon::before {
+    top: -5px;
+}
+
+.hamburger-icon::after {
+    top: 5px;
+}
+
+.hamburger-panel {
+    position     : absolute;
+    right        : 0;
+    top          : calc(100% + 0.4rem);
+    width        : min(255px, 84vw);
+    border       : 1px solid #cde0dc;
+    border-radius: 11px;
+    background   : #fff;
+    box-shadow   : 0 16px 30px rgb(8 40 36 / 15%);
+    padding      : 0.36rem;
+    display      : grid;
+    gap          : 0.26rem;
+}
+
+.hamburger-panel[hidden] {
+    display: none;
+}
+
+.hamburger-link {
+    display        : block;
+    text-decoration: none;
+    color          : #224541;
+    border         : 1px solid transparent;
+    border-radius  : 8px;
+    padding        : 0.5rem 0.62rem;
+    font-weight    : 700;
+}
+
+.hamburger-link:hover {
+    border-color: #c6d8d4;
+    background  : #f7fbfa;
+}
+
+.hamburger-link.is-active {
+    background  : #0b7a6e;
+    border-color: #0b7a6e;
+    color       : #fff;
+}
+
 .auth-shell {
     min-height: 100vh;
     display   : grid;
@@ -186,6 +265,12 @@ body.modal-open {
     grid-template-columns: 390px minmax(0, 1fr);
     gap                  : 0.95rem;
     align-items          : start;
+}
+
+.account-grid {
+    display              : grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap                  : 0.95rem;
 }
 
 .trends-grid {
@@ -657,6 +742,12 @@ h2 {
     gap                  : 0.56rem;
 }
 
+.account-form-grid {
+    display              : grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap                  : 0.56rem;
+}
+
 .schedule-active-wrap {
     display        : flex;
     align-items    : center;
@@ -1043,6 +1134,10 @@ th {
     }
 
     .schedule-form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .account-form-grid {
         grid-template-columns: 1fr;
     }
 

@@ -30,6 +30,26 @@ final class Auth
         ];
     }
 
+    public static function updateUsername(string $username): void
+    {
+        self::startSession();
+
+        $user = $_SESSION[self::SESSION_KEY] ?? null;
+        if (!is_array($user)) {
+            return;
+        }
+
+        $userId = (int) ($user['id'] ?? 0);
+        if ($userId <= 0) {
+            return;
+        }
+
+        $_SESSION[self::SESSION_KEY] = [
+            'id' => $userId,
+            'username' => trim($username),
+        ];
+    }
+
     public static function isAuthenticated(): bool
     {
         self::startSession();
