@@ -292,15 +292,36 @@ document.addEventListener("DOMContentLoaded", () => {
     const plotWidth = width - padding.left - padding.right;
     const plotHeight = height - padding.top - padding.bottom;
     const values = validPoints.map((point) => point.value);
-    const yMax = Math.max(1, Number.isFinite(options.yMax) ? options.yMax : Math.max(...values));
+    const rawMax = Math.max(
+      1,
+      Number.isFinite(options.yMax) ? options.yMax : Math.max(...values)
+    );
+    const useIntegerTicks = options.integerTicks === true;
+    const tickCount = 4;
+    const tickValues = [];
+
+    let yMax = rawMax;
+    if (useIntegerTicks) {
+      const tickStep = Math.max(1, Math.ceil(rawMax / tickCount));
+      yMax = Math.max(tickStep, Math.ceil(rawMax / tickStep) * tickStep);
+      for (let value = yMax; value >= 0; value -= tickStep) {
+        tickValues.push(value);
+      }
+      if (tickValues[tickValues.length - 1] !== 0) {
+        tickValues.push(0);
+      }
+    } else {
+      for (let tickIndex = 0; tickIndex <= tickCount; tickIndex += 1) {
+        tickValues.push(yMax - (yMax * tickIndex) / tickCount);
+      }
+    }
+
     const yAt = (value) =>
       padding.top + ((yMax - value) / yMax) * plotHeight;
 
-    const tickCount = 4;
     const gridLines = [];
     const yLabels = [];
-    for (let tickIndex = 0; tickIndex <= tickCount; tickIndex += 1) {
-      const value = yMax - (yMax * tickIndex) / tickCount;
+    tickValues.forEach((value) => {
       const y = yAt(value);
       const tickLabel =
         typeof options.tickFormatter === "function"
@@ -316,7 +337,7 @@ document.addEventListener("DOMContentLoaded", () => {
           y + 4
         ).toFixed(2)}" text-anchor="end">${escapeHtml(tickLabel)}</text>`
       );
-    }
+    });
 
     const bars = [];
     const xLabels = [];
@@ -486,6 +507,7 @@ document.addEventListener("DOMContentLoaded", () => {
       .filter((point) => Number.isFinite(point.value));
     renderBarChart(chartWeeklyEntries, weeklyPoints, {
       ariaLabel: "Weekly intake entries trend",
+      integerTicks: true,
       tickFormatter: (value) => formatCount(value),
       valueFormatter: (value) => `${formatCount(value)} entries`,
       labelFormatter: (label) => shortenLabel(label, 8),
@@ -511,6 +533,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }));
     renderBarChart(chartWeekdayPattern, weekdayPoints, {
       ariaLabel: "Weekday intake entry pattern",
+      integerTicks: true,
       tickFormatter: (value) => formatCount(value),
       valueFormatter: (value) => `${formatCount(value)} entries`,
       labelFormatter: (label) => label,
