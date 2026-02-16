@@ -98,6 +98,22 @@ function formatTimeOnly(string $value): string
     }
 }
 
+function ordinal(int $number): string
+{
+    $absolute = abs($number);
+    $mod100 = $absolute % 100;
+    if ($mod100 >= 11 && $mod100 <= 13) {
+        return $number . 'th';
+    }
+
+    return match ($absolute % 10) {
+        1 => $number . 'st',
+        2 => $number . 'nd',
+        3 => $number . 'rd',
+        default => $number . 'th',
+    };
+}
+
 function formatDosageValue(string $value): string
 {
     if (!is_numeric($value)) {
@@ -885,6 +901,115 @@ function loadTrends(PDO $pdo): array
         ];
     }
 
+    $rankedDoseSql = 'SELECT l1.id,
+                             l1.taken_at,
+                             l1.medicine_id,
+                             COUNT(l2.id) AS dose_order
+                      FROM medicine_intake_logs l1
+                      INNER JOIN medicine_intake_logs l2
+                          ON DATE(l2.taken_at) = DATE(l1.taken_at)
+                          AND l2.taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+                          AND (
+                              l2.taken_at < l1.taken_at
+                              OR (l2.taken_at = l1.taken_at AND l2.id <= l1.id)
+                          )
+                      WHERE l1.taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+                      GROUP BY l1.id, l1.taken_at, l1.medicine_id';
+
+    $doseWeekdayStatement = $pdo->query(
+        'SELECT ranked.dose_order,
+                WEEKDAY(ranked.taken_at) AS weekday_index,
+                AVG(TIME_TO_SEC(TIME(ranked.taken_at)) / 60) AS avg_minute_of_day,
+                COUNT(*) AS samples
+         FROM (' . $rankedDoseSql . ') ranked
+         GROUP BY ranked.dose_order, WEEKDAY(ranked.taken_at)
+         ORDER BY ranked.dose_order, WEEKDAY(ranked.taken_at)'
+    );
+    $doseWeekdayRows = $doseWeekdayStatement->fetchAll();
+    $medicineDoseWeekdayStatement = $pdo->query(
+        'SELECT ranked.dose_order,
+                ranked.medicine_id,
+                m.name AS medicine_name,
+                WEEKDAY(ranked.taken_at) AS weekday_index,
+                AVG(TIME_TO_SEC(TIME(ranked.taken_at)) / 60) AS avg_minute_of_day,
+                COUNT(*) AS samples
+         FROM (' . $rankedDoseSql . ') ranked
+         INNER JOIN medicines m ON m.id = ranked.medicine_id
+         GROUP BY ranked.dose_order, ranked.medicine_id, m.name, WEEKDAY(ranked.taken_at)
+         ORDER BY ranked.dose_order, ranked.medicine_id, WEEKDAY(ranked.taken_at)'
+    );
+    $medicineDoseWeekdayRows = $medicineDoseWeekdayStatement->fetchAll();
+    $doseWeekdayPatterns = [];
+    $availableDoseOrdersMap = [];
+    $availableMedicinesMap = [];
+
+    foreach ($doseWeekdayRows as $row) {
+        $doseOrder = (int) ($row['dose_order'] ?? 0);
+        $weekdayIndex = (int) ($row['weekday_index'] ?? -1);
+        if ($doseOrder <= 0 || !isset($weekdayNames[$weekdayIndex])) {
+            continue;
+        }
+
+        $availableDoseOrdersMap[$doseOrder] = true;
+        $doseWeekdayPatterns[] = [
+            'dose_order' => $doseOrder,
+            'dose_label' => ordinal($doseOrder),
+            'medicine_id' => null,
+            'medicine_name' => 'All medicines',
+            'weekday_index' => $weekdayIndex,
+            'weekday_label' => $weekdayNames[$weekdayIndex],
+            'avg_minute_of_day' => isset($row['avg_minute_of_day']) && $row['avg_minute_of_day'] !== null
+                ? round((float) $row['avg_minute_of_day'], 2)
+                : null,
+            'samples' => (int) ($row['samples'] ?? 0),
+        ];
+    }
+
+    foreach ($medicineDoseWeekdayRows as $row) {
+        $doseOrder = (int) ($row['dose_order'] ?? 0);
+        $medicineId = (int) ($row['medicine_id'] ?? 0);
+        $medicineName = trim((string) ($row['medicine_name'] ?? ''));
+        $weekdayIndex = (int) ($row['weekday_index'] ?? -1);
+        if (
+            $doseOrder <= 0
+            || $medicineId <= 0
+            || $medicineName === ''
+            || !isset($weekdayNames[$weekdayIndex])
+        ) {
+            continue;
+        }
+
+        $availableDoseOrdersMap[$doseOrder] = true;
+        $availableMedicinesMap[$medicineId] = $medicineName;
+        $doseWeekdayPatterns[] = [
+            'dose_order' => $doseOrder,
+            'dose_label' => ordinal($doseOrder),
+            'medicine_id' => $medicineId,
+            'medicine_name' => $medicineName,
+            'weekday_index' => $weekdayIndex,
+            'weekday_label' => $weekdayNames[$weekdayIndex],
+            'avg_minute_of_day' => isset($row['avg_minute_of_day']) && $row['avg_minute_of_day'] !== null
+                ? round((float) $row['avg_minute_of_day'], 2)
+                : null,
+            'samples' => (int) ($row['samples'] ?? 0),
+        ];
+    }
+
+    $availableDoseOrders = array_map(
+        static fn(string|int $value): int => (int) $value,
+        array_keys($availableDoseOrdersMap)
+    );
+    sort($availableDoseOrders);
+
+    asort($availableMedicinesMap, SORT_NATURAL | SORT_FLAG_CASE);
+    $availableMedicines = [];
+    foreach ($availableMedicinesMap as $medicineId => $medicineName) {
+        $availableMedicines[] = [
+            'id' => (int) $medicineId,
+            'name' => (string) $medicineName,
+        ];
+    }
+
     return [
         'summary' => [
             'entries_last_30_days' => $entriesLast30Days,
@@ -897,6 +1022,11 @@ function loadTrends(PDO $pdo): array
         'weekly_entries' => $weeklyEntries,
         'top_medicines_90_days' => $topMedicines,
         'weekday_patterns_90_days' => $weekdayPatterns,
+        'dose_weekday_patterns_90_days' => [
+            'available_orders' => $availableDoseOrders,
+            'available_medicines' => $availableMedicines,
+            'rows' => $doseWeekdayPatterns,
+        ],
     ];
 }
 

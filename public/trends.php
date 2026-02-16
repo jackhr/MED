@@ -114,6 +114,16 @@ $dbReady = $pdo instanceof PDO;
                     <p class="chart-empty">Loading chart...</p>
                 </div>
             </article>
+
+            <article class="card trends-card-wide">
+                <h2>Dose Time Highlights</h2>
+                <p id="chart-dose-order-meta" class="meta-text">Select a dose order to see average time by weekday over the last 90 days.</p>
+                <div id="dose-order-controls" class="dose-order-controls" aria-label="Dose order selector"></div>
+                <div id="dose-medicine-controls" class="dose-order-controls" aria-label="Medicine selector" hidden></div>
+                <div id="chart-dose-order" class="chart-shell">
+                    <p class="chart-empty">Loading chart...</p>
+                </div>
+            </article>
         </section>
 
         <section class="trends-grid">
@@ -189,6 +199,26 @@ $dbReady = $pdo instanceof PDO;
                             </tr>
                         </thead>
                         <tbody id="trend-weekday-body">
+                            <tr>
+                                <td class="empty-cell" colspan="3">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </article>
+
+            <article class="card">
+                <h2>Dose Order Timing (90 Days)</h2>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Weekday</th>
+                                <th>Avg Time</th>
+                                <th>Samples</th>
+                            </tr>
+                        </thead>
+                        <tbody id="trend-dose-order-body">
                             <tr>
                                 <td class="empty-cell" colspan="3">Loading...</td>
                             </tr>

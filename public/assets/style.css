@@ -195,6 +195,18 @@ body.modal-open {
     align-items          : start;
 }
 
+.trends-card-wide {
+    grid-column: 1 / -1;
+}
+
+.dose-order-controls {
+    display      : flex;
+    flex-wrap    : wrap;
+    gap          : 0.5rem;
+    margin-top   : 0.45rem;
+    margin-bottom: 0.45rem;
+}
+
 .workspace-grid > *,
 .schedule-grid > *,
 .trends-grid > *,
@@ -404,6 +416,7 @@ body.modal-open {
 }
 
 .chart-shell {
+    position     : relative;
     margin-top   : 0.55rem;
     border       : 1px solid #d4e6e2;
     border-radius: 10px;
@@ -416,6 +429,21 @@ body.modal-open {
     margin : 0;
     color  : var(--muted);
     padding: 0.55rem;
+}
+
+.chart-tooltip {
+    position      : absolute;
+    left          : 0;
+    top           : 0;
+    z-index       : 3;
+    pointer-events: none;
+    background    : rgba(23, 37, 35, 0.95);
+    color         : #fff;
+    border-radius : 8px;
+    padding       : 0.35rem 0.5rem;
+    font-size     : 0.78rem;
+    line-height   : 1.2;
+    box-shadow    : 0 5px 16px rgba(0, 0, 0, 0.18);
 }
 
 .chart-svg {
@@ -456,6 +484,19 @@ body.modal-open {
 
 .chart-bar {
     fill: #0f887b;
+}
+
+.chart-reference-line {
+    stroke          : #f5a23a;
+    stroke-width    : 2;
+    stroke-dasharray: 6 4;
+}
+
+.chart-reference-label {
+    fill       : #8a5a16;
+    font-size  : 11px;
+    font-weight: 700;
+    font-family: "Trebuchet MS", "Verdana", "Geneva", sans-serif;
 }
 
 .bar-list {
@@ -739,6 +780,12 @@ textarea {
 
 .ghost-btn:hover {
     border-color: #90bbb4;
+}
+
+.dose-order-btn.is-active {
+    background  : #0f887b;
+    border-color: #0f887b;
+    color       : #fff;
 }
 
 .danger-btn {

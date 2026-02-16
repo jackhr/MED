@@ -16,10 +16,19 @@ document.addEventListener("DOMContentLoaded", () => {
   const weeklyBody = document.getElementById("trend-weekly-body");
   const medicinesBody = document.getElementById("trend-medicines-body");
   const weekdayBody = document.getElementById("trend-weekday-body");
+  const doseOrderBody = document.getElementById("trend-dose-order-body");
   const chartMonthlyRating = document.getElementById("chart-monthly-rating");
   const chartWeeklyEntries = document.getElementById("chart-weekly-entries");
   const chartTopMedicines = document.getElementById("chart-top-medicines");
   const chartWeekdayPattern = document.getElementById("chart-weekday-pattern");
+  const chartDoseOrder = document.getElementById("chart-dose-order");
+  const chartDoseOrderMeta = document.getElementById("chart-dose-order-meta");
+  const doseOrderControls = document.getElementById("dose-order-controls");
+  const doseMedicineControls = document.getElementById("dose-medicine-controls");
+
+  let latestTrends = null;
+  let selectedDoseOrder = null;
+  let selectedDoseMedicine = "all";
 
   function buildApiUrl(action) {
     const url = new URL(apiPath, window.location.href);
@@ -82,6 +91,82 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     return String(Math.round(numeric));
+  }
+
+  function formatMinutesAsTime(value, compact = false) {
+    if (value === null || value === undefined || value === "") {
+      return "--";
+    }
+
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return "--";
+    }
+
+    const rounded = Math.round(numeric);
+    if (rounded > 1440) {
+      return compact ? "12 AM+" : "12:00 AM (+1d)";
+    }
+    if (rounded === 1440) {
+      return compact ? "12AM" : "12:00 AM";
+    }
+
+    const safeMinutes = Math.max(0, rounded);
+    const hours24 = Math.floor(safeMinutes / 60);
+    const minutes = safeMinutes % 60;
+    const period = hours24 >= 12 ? "PM" : "AM";
+    const hours12 = hours24 % 12 === 0 ? 12 : hours24 % 12;
+
+    if (compact && minutes === 0) {
+      return `${hours12}${period}`;
+    }
+
+    return `${hours12}:${String(minutes).padStart(2, "0")} ${period}`;
+  }
+
+  function normalizeDoseOrder(value) {
+    const numeric = Number(value);
+    if (!Number.isInteger(numeric) || numeric <= 0) {
+      return null;
+    }
+
+    return numeric;
+  }
+
+  function normalizeDoseMedicine(value) {
+    if (value === "all") {
+      return "all";
+    }
+
+    const numeric = Number(value);
+    if (!Number.isInteger(numeric) || numeric <= 0) {
+      return null;
+    }
+
+    return numeric;
+  }
+
+  function formatOrdinal(value) {
+    const safeValue = normalizeDoseOrder(value);
+    if (safeValue === null) {
+      return String(value);
+    }
+
+    const mod100 = safeValue % 100;
+    if (mod100 >= 11 && mod100 <= 13) {
+      return `${safeValue}th`;
+    }
+
+    switch (safeValue % 10) {
+      case 1:
+        return `${safeValue}st`;
+      case 2:
+        return `${safeValue}nd`;
+      case 3:
+        return `${safeValue}rd`;
+      default:
+        return `${safeValue}th`;
+    }
   }
 
   function escapeHtml(value) {
@@ -275,8 +360,12 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const validPoints = points.filter((point) => Number.isFinite(point.value));
-    if (validPoints.length === 0) {
+    const sourcePoints = Array.isArray(points) ? points : [];
+    const validPoints = sourcePoints.filter((point) => Number.isFinite(point.value));
+    const plottedPoints =
+      options.keepAllPoints === true ? sourcePoints : validPoints;
+
+    if (plottedPoints.length === 0 || validPoints.length === 0) {
       clearChart(chartElement, "No chart data yet.");
       return;
     }
@@ -339,30 +428,62 @@ document.addEventListener("DOMContentLoaded", () => {
       );
     });
 
+    let referenceLine = "";
+    let referenceLabel = "";
+    if (Number.isFinite(options.referenceLineValue)) {
+      const referenceRawValue = Number(options.referenceLineValue);
+      const referenceValue = Math.max(0, Math.min(yMax, referenceRawValue));
+      const referenceY = yAt(referenceValue);
+      const label = options.referenceLineLabel || "Average";
+      const valueLabel =
+        typeof options.referenceValueFormatter === "function"
+          ? options.referenceValueFormatter(referenceRawValue)
+          : String(referenceRawValue);
+      const textY = Math.max(padding.top + 12, referenceY - 6);
+
+      referenceLine = `<line class="chart-reference-line" x1="${padding.left}" y1="${referenceY.toFixed(
+        2
+      )}" x2="${width - padding.right}" y2="${referenceY.toFixed(
+        2
+      )}"><title>${escapeHtml(
+        `${label}: ${valueLabel}`
+      )}</title></line>`;
+      referenceLabel = `<text class="chart-reference-label" x="${(
+        width - padding.right - 4
+      ).toFixed(2)}" y="${textY.toFixed(2)}" text-anchor="end">${escapeHtml(
+        `${label}: ${valueLabel}`
+      )}</text>`;
+    }
+
     const bars = [];
     const xLabels = [];
-    const slotWidth = plotWidth / validPoints.length;
+    const slotWidth = plotWidth / plottedPoints.length;
     const barWidth = Math.max(10, slotWidth * 0.64);
-    const labelStep = validPoints.length > 10 ? Math.ceil(validPoints.length / 8) : 1;
+    const labelStep = plottedPoints.length > 10 ? Math.ceil(plottedPoints.length / 8) : 1;
 
-    validPoints.forEach((point, index) => {
+    plottedPoints.forEach((point, index) => {
       const x = padding.left + index * slotWidth + (slotWidth - barWidth) / 2;
-      const barHeight = (Math.max(0, point.value) / yMax) * plotHeight;
+      const hasValue = Number.isFinite(point.value);
+      const barHeight = hasValue ? (Math.max(0, point.value) / yMax) * plotHeight : 0;
       const y = padding.top + plotHeight - barHeight;
       const valueLabel =
         typeof options.valueFormatter === "function"
           ? options.valueFormatter(point.value)
           : String(point.value);
 
-      bars.push(
-        `<rect class="chart-bar" x="${x.toFixed(2)}" y="${y.toFixed(
-          2
-        )}" width="${barWidth.toFixed(2)}" height="${barHeight.toFixed(
-          2
-        )}"><title>${escapeHtml(`${point.label}: ${valueLabel}`)}</title></rect>`
-      );
+      if (hasValue) {
+        const tooltipText = `${point.label}: ${valueLabel}`;
+        const encodedTooltipText = encodeURIComponent(tooltipText);
+        bars.push(
+          `<rect class="chart-bar" x="${x.toFixed(2)}" y="${y.toFixed(
+            2
+          )}" width="${barWidth.toFixed(2)}" height="${barHeight.toFixed(
+            2
+          )}" data-tooltip="${encodedTooltipText}"></rect>`
+        );
+      }
 
-      if (index % labelStep === 0 || index === validPoints.length - 1) {
+      if (index % labelStep === 0 || index === plottedPoints.length - 1) {
         const renderedLabel =
           typeof options.labelFormatter === "function"
             ? options.labelFormatter(point.label)
@@ -388,9 +509,72 @@ document.addEventListener("DOMContentLoaded", () => {
         ${gridLines.join("")}
         ${yLabels.join("")}
         ${bars.join("")}
+        ${referenceLine}
+        ${referenceLabel}
         ${xLabels.join("")}
       </svg>
     `;
+
+    if (options.enableHoverTooltip === true) {
+      const tooltip = document.createElement("div");
+      tooltip.className = "chart-tooltip";
+      tooltip.hidden = true;
+      chartElement.appendChild(tooltip);
+
+      const positionTooltip = (clientX, clientY) => {
+        const shellRect = chartElement.getBoundingClientRect();
+        const tooltipWidth = tooltip.offsetWidth;
+        const tooltipHeight = tooltip.offsetHeight;
+        const baseX = clientX - shellRect.left + 12;
+        const baseY = clientY - shellRect.top - tooltipHeight - 10;
+        const clampedX = Math.min(
+          Math.max(8, baseX),
+          Math.max(8, shellRect.width - tooltipWidth - 8)
+        );
+        const clampedY = Math.min(
+          Math.max(8, baseY),
+          Math.max(8, shellRect.height - tooltipHeight - 8)
+        );
+        tooltip.style.left = `${clampedX}px`;
+        tooltip.style.top = `${clampedY}px`;
+      };
+
+      const hideTooltip = () => {
+        tooltip.hidden = true;
+      };
+
+      const barElements = chartElement.querySelectorAll(".chart-bar[data-tooltip]");
+      barElements.forEach((barElement) => {
+        barElement.addEventListener("mouseenter", (event) => {
+          const encoded = barElement.getAttribute("data-tooltip") || "";
+          let decoded = "";
+          try {
+            decoded = decodeURIComponent(encoded);
+          } catch (error) {
+            decoded = "";
+          }
+
+          if (decoded === "") {
+            hideTooltip();
+            return;
+          }
+
+          tooltip.textContent = decoded;
+          tooltip.hidden = false;
+          positionTooltip(event.clientX, event.clientY);
+        });
+
+        barElement.addEventListener("mousemove", (event) => {
+          if (tooltip.hidden) {
+            return;
+          }
+
+          positionTooltip(event.clientX, event.clientY);
+        });
+
+        barElement.addEventListener("mouseleave", hideTooltip);
+      });
+    }
   }
 
   function renderHorizontalBarChart(chartElement, points) {
@@ -428,6 +612,345 @@ document.addEventListener("DOMContentLoaded", () => {
     clearChart(chartWeeklyEntries, message);
     clearChart(chartTopMedicines, message);
     clearChart(chartWeekdayPattern, message);
+    clearChart(chartDoseOrder, message);
+  }
+
+  function buildDoseWeekdaySeries(rows, doseOrder, selectedMedicine) {
+    const weekdayOrder = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const rowsByWeekday = new Map();
+    const normalizedMedicine = normalizeDoseMedicine(selectedMedicine);
+    const targetMedicine =
+      normalizedMedicine === null ? "all" : normalizedMedicine;
+
+    rows.forEach((row) => {
+      const rowDoseOrder = normalizeDoseOrder(row.dose_order);
+      const rowMedicine =
+        row.medicine_id === null ||
+        row.medicine_id === undefined ||
+        row.medicine_id === ""
+          ? "all"
+          : normalizeDoseMedicine(row.medicine_id);
+      const weekdayIndex = Number(row.weekday_index);
+      if (
+        rowDoseOrder !== doseOrder ||
+        rowMedicine === null ||
+        rowMedicine !== targetMedicine ||
+        !Number.isInteger(weekdayIndex) ||
+        weekdayIndex < 0 ||
+        weekdayIndex > 6
+      ) {
+        return;
+      }
+
+      const averageMinute = Number(row.avg_minute_of_day);
+      const samplesRaw = Number(row.samples);
+      rowsByWeekday.set(weekdayIndex, {
+        weekday_index: weekdayIndex,
+        weekday_label: weekdayOrder[weekdayIndex],
+        avg_minute_of_day: Number.isFinite(averageMinute) ? averageMinute : null,
+        samples:
+          Number.isFinite(samplesRaw) && samplesRaw > 0
+            ? Math.round(samplesRaw)
+            : 0,
+      });
+    });
+
+    return weekdayOrder.map((weekdayLabel, weekdayIndex) => {
+      if (rowsByWeekday.has(weekdayIndex)) {
+        return rowsByWeekday.get(weekdayIndex);
+      }
+
+      return {
+        weekday_index: weekdayIndex,
+        weekday_label: weekdayLabel,
+        avg_minute_of_day: null,
+        samples: 0,
+      };
+    });
+  }
+
+  function averageMinuteFromSeries(series) {
+    let weightedSum = 0;
+    let totalSamples = 0;
+
+    series.forEach((row) => {
+      const averageMinute = Number(row.avg_minute_of_day);
+      const samples = Number(row.samples);
+      if (
+        Number.isFinite(averageMinute) &&
+        Number.isFinite(samples) &&
+        samples > 0
+      ) {
+        weightedSum += averageMinute * samples;
+        totalSamples += samples;
+      }
+    });
+
+    return totalSamples > 0 ? weightedSum / totalSamples : null;
+  }
+
+  function medicinesForDoseOrder(rows, availableMedicines, doseOrder) {
+    const medicineNames = new Map();
+    if (Array.isArray(availableMedicines)) {
+      availableMedicines.forEach((medicine) => {
+        const medicineId = normalizeDoseMedicine(medicine?.id);
+        const medicineName = String(medicine?.name || "").trim();
+        if (medicineId !== null && medicineId !== "all" && medicineName !== "") {
+          medicineNames.set(medicineId, medicineName);
+        }
+      });
+    }
+
+    const medicinesByOrder = new Map();
+    rows.forEach((row) => {
+      const rowDoseOrder = normalizeDoseOrder(row.dose_order);
+      const rowMedicineId = normalizeDoseMedicine(row.medicine_id);
+      const samples = Number(row.samples);
+      if (
+        rowDoseOrder !== doseOrder ||
+        rowMedicineId === null ||
+        rowMedicineId === "all" ||
+        !Number.isFinite(samples) ||
+        samples <= 0
+      ) {
+        return;
+      }
+
+      const rowMedicineName = String(row.medicine_name || "").trim();
+      medicinesByOrder.set(
+        rowMedicineId,
+        rowMedicineName !== ""
+          ? rowMedicineName
+          : medicineNames.get(rowMedicineId) || `Medicine ${rowMedicineId}`
+      );
+    });
+
+    return Array.from(medicinesByOrder.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  function renderDoseOrderControls(availableOrders) {
+    if (!doseOrderControls) {
+      return;
+    }
+
+    doseOrderControls.innerHTML = "";
+    availableOrders.forEach((order) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "ghost-btn dose-order-btn";
+      button.textContent = `${formatOrdinal(order)} dose`;
+      if (order === selectedDoseOrder) {
+        button.classList.add("is-active");
+      }
+      button.addEventListener("click", () => {
+        if (selectedDoseOrder === order) {
+          return;
+        }
+
+        selectedDoseOrder = order;
+        if (latestTrends) {
+          renderDoseOrderTrend(latestTrends);
+        }
+      });
+      doseOrderControls.appendChild(button);
+    });
+  }
+
+  function renderDoseMedicineControls(medicines) {
+    if (!doseMedicineControls) {
+      return;
+    }
+
+    if (!Array.isArray(medicines) || medicines.length <= 1) {
+      doseMedicineControls.hidden = true;
+      doseMedicineControls.innerHTML = "";
+      return;
+    }
+
+    doseMedicineControls.hidden = false;
+    doseMedicineControls.innerHTML = "";
+
+    const allButton = document.createElement("button");
+    allButton.type = "button";
+    allButton.className = "ghost-btn dose-order-btn";
+    allButton.textContent = "All medicines";
+    if (selectedDoseMedicine === "all") {
+      allButton.classList.add("is-active");
+    }
+    allButton.addEventListener("click", () => {
+      if (selectedDoseMedicine === "all") {
+        return;
+      }
+
+      selectedDoseMedicine = "all";
+      if (latestTrends) {
+        renderDoseOrderTrend(latestTrends);
+      }
+    });
+    doseMedicineControls.appendChild(allButton);
+
+    medicines.forEach((medicine) => {
+      const medicineId = normalizeDoseMedicine(medicine.id);
+      if (medicineId === null || medicineId === "all") {
+        return;
+      }
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "ghost-btn dose-order-btn";
+      button.textContent = String(medicine.name || `Medicine ${medicineId}`);
+      if (selectedDoseMedicine === medicineId) {
+        button.classList.add("is-active");
+      }
+      button.addEventListener("click", () => {
+        if (selectedDoseMedicine === medicineId) {
+          return;
+        }
+
+        selectedDoseMedicine = medicineId;
+        if (latestTrends) {
+          renderDoseOrderTrend(latestTrends);
+        }
+      });
+      doseMedicineControls.appendChild(button);
+    });
+  }
+
+  function renderDoseOrderTrend(trends) {
+    const doseWeekdayData = trends?.dose_weekday_patterns_90_days || {};
+    const rawRows = Array.isArray(doseWeekdayData.rows)
+      ? doseWeekdayData.rows
+      : [];
+    const availableMedicinesRaw = Array.isArray(
+      doseWeekdayData.available_medicines
+    )
+      ? doseWeekdayData.available_medicines
+      : [];
+    let availableOrders = Array.isArray(doseWeekdayData.available_orders)
+      ? doseWeekdayData.available_orders
+          .map((value) => normalizeDoseOrder(value))
+          .filter((value) => value !== null)
+      : [];
+
+    if (availableOrders.length === 0) {
+      availableOrders = Array.from(
+        new Set(
+          rawRows
+            .map((row) => normalizeDoseOrder(row.dose_order))
+            .filter((value) => value !== null)
+        )
+      );
+    }
+    availableOrders.sort((left, right) => left - right);
+
+    if (availableOrders.length === 0) {
+      selectedDoseMedicine = "all";
+      if (doseOrderControls) {
+        doseOrderControls.innerHTML = "";
+      }
+      if (doseMedicineControls) {
+        doseMedicineControls.hidden = true;
+        doseMedicineControls.innerHTML = "";
+      }
+      if (chartDoseOrderMeta) {
+        chartDoseOrderMeta.textContent =
+          "No dose-order timing data yet for the last 90 days.";
+      }
+      clearTable(doseOrderBody, "No data yet.");
+      clearChart(chartDoseOrder, "No chart data yet.");
+      return;
+    }
+
+    if (!availableOrders.includes(selectedDoseOrder)) {
+      selectedDoseOrder = availableOrders[0];
+    }
+
+    renderDoseOrderControls(availableOrders);
+
+    const medicinesForSelectedOrder = medicinesForDoseOrder(
+      rawRows,
+      availableMedicinesRaw,
+      selectedDoseOrder
+    );
+    const normalizedSelectedMedicine = normalizeDoseMedicine(selectedDoseMedicine);
+    if (
+      medicinesForSelectedOrder.length <= 1 ||
+      normalizedSelectedMedicine === null
+    ) {
+      selectedDoseMedicine = "all";
+    } else if (
+      normalizedSelectedMedicine !== "all" &&
+      !medicinesForSelectedOrder.some(
+        (medicine) => medicine.id === normalizedSelectedMedicine
+      )
+    ) {
+      selectedDoseMedicine = "all";
+    }
+    renderDoseMedicineControls(medicinesForSelectedOrder);
+
+    const activeMedicineFilter =
+      medicinesForSelectedOrder.length > 1
+        ? normalizeDoseMedicine(selectedDoseMedicine) || "all"
+        : "all";
+    const selectedMedicine = medicinesForSelectedOrder.find(
+      (medicine) => medicine.id === activeMedicineFilter
+    );
+    const selectedMedicineLabel =
+      activeMedicineFilter === "all"
+        ? medicinesForSelectedOrder.length === 1
+          ? medicinesForSelectedOrder[0].name
+          : "All medicines"
+        : selectedMedicine?.name || "All medicines";
+
+    const selectedSeries = buildDoseWeekdaySeries(
+      rawRows,
+      selectedDoseOrder,
+      activeMedicineFilter
+    );
+    const selectedDoseLabel = `${formatOrdinal(selectedDoseOrder)} dose`;
+    const selectedAverageMinute = averageMinuteFromSeries(selectedSeries);
+    const selectedAverageHour =
+      selectedAverageMinute === null ? null : selectedAverageMinute / 60;
+    const sampleTotal = selectedSeries.reduce(
+      (total, row) => total + Math.max(0, Number(row.samples) || 0),
+      0
+    );
+
+    if (chartDoseOrderMeta) {
+      chartDoseOrderMeta.textContent = `${selectedDoseLabel} average time by weekday for ${selectedMedicineLabel} over the last 90 days. ${selectedDoseLabel} overall average: ${formatMinutesAsTime(
+        selectedAverageMinute
+      )} (${sampleTotal} samples).`;
+    }
+
+    renderTrendRows(doseOrderBody, selectedSeries, 3, (row) => [
+      row.weekday_label,
+      row.samples > 0 ? formatMinutesAsTime(row.avg_minute_of_day) : "--",
+      row.samples,
+    ]);
+
+    const chartPoints = selectedSeries.map((row) => ({
+      label: row.weekday_label,
+      value:
+        row.samples > 0 && Number.isFinite(Number(row.avg_minute_of_day))
+          ? Number(row.avg_minute_of_day) / 60
+          : Number.NaN,
+    }));
+
+    renderBarChart(chartDoseOrder, chartPoints, {
+      ariaLabel: `${selectedDoseLabel} average time by weekday for ${selectedMedicineLabel}`,
+      yMax: 24,
+      integerTicks: true,
+      keepAllPoints: true,
+      enableHoverTooltip: true,
+      tickFormatter: (value) => formatMinutesAsTime(value * 60, true),
+      valueFormatter: (value) => formatMinutesAsTime(value * 60),
+      labelFormatter: (label) => label,
+      referenceLineValue: selectedAverageHour,
+      referenceLineLabel: `${selectedDoseLabel} Avg`,
+      referenceValueFormatter: (value) => formatMinutesAsTime(value * 60),
+    });
   }
 
   function renderTrends(trends) {
@@ -538,6 +1061,8 @@ document.addEventListener("DOMContentLoaded", () => {
       valueFormatter: (value) => `${formatCount(value)} entries`,
       labelFormatter: (label) => label,
     });
+
+    renderDoseOrderTrend(trends);
   }
 
   if (!dbReady) {
@@ -546,20 +1071,38 @@ document.addEventListener("DOMContentLoaded", () => {
     clearTable(weeklyBody, "Database unavailable.");
     clearTable(medicinesBody, "Database unavailable.");
     clearTable(weekdayBody, "Database unavailable.");
+    clearTable(doseOrderBody, "Database unavailable.");
+    if (doseOrderControls) {
+      doseOrderControls.innerHTML = "";
+    }
+    if (doseMedicineControls) {
+      doseMedicineControls.hidden = true;
+      doseMedicineControls.innerHTML = "";
+    }
     clearAllCharts("Database unavailable.");
     return;
   }
 
   apiRequest("trends")
     .then((payload) => {
-      renderTrends(payload.trends || {});
+      latestTrends = payload.trends || {};
+      renderTrends(latestTrends);
     })
     .catch((error) => {
+      latestTrends = null;
       showStatus(error.message, "error");
       clearTable(monthlyBody, "Could not load trends.");
       clearTable(weeklyBody, "Could not load trends.");
       clearTable(medicinesBody, "Could not load trends.");
       clearTable(weekdayBody, "Could not load trends.");
+      clearTable(doseOrderBody, "Could not load trends.");
+      if (doseOrderControls) {
+        doseOrderControls.innerHTML = "";
+      }
+      if (doseMedicineControls) {
+        doseMedicineControls.hidden = true;
+        doseMedicineControls.innerHTML = "";
+      }
       clearAllCharts("Could not load charts.");
     });
 });
