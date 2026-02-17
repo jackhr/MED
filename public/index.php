@@ -901,6 +901,208 @@ function loadTrends(PDO $pdo): array
         ];
     }
 
+    $doseIntervalSql = 'SELECT l1.id,
+                               l1.taken_at,
+                               TIMESTAMPDIFF(
+                                   MINUTE,
+                                   (
+                                       SELECT l2.taken_at
+                                       FROM medicine_intake_logs l2
+                                       WHERE DATE(l2.taken_at) = DATE(l1.taken_at)
+                                         AND (
+                                             l2.taken_at < l1.taken_at
+                                             OR (l2.taken_at = l1.taken_at AND l2.id < l1.id)
+                                         )
+                                       ORDER BY l2.taken_at DESC, l2.id DESC
+                                       LIMIT 1
+                                   ),
+                                   l1.taken_at
+                               ) AS interval_minutes
+                        FROM medicine_intake_logs l1
+                        WHERE l1.taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)';
+
+    $doseIntervalSummaryStatement = $pdo->query(
+        'SELECT AVG(
+                    CASE
+                        WHEN YEARWEEK(intervals.taken_at, 1) = YEARWEEK(CURDATE(), 1)
+                        THEN intervals.interval_minutes
+                        ELSE NULL
+                    END
+                ) AS avg_interval_this_week,
+                SUM(
+                    CASE
+                        WHEN YEARWEEK(intervals.taken_at, 1) = YEARWEEK(CURDATE(), 1)
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS samples_this_week,
+                AVG(
+                    CASE
+                        WHEN intervals.taken_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                        THEN intervals.interval_minutes
+                        ELSE NULL
+                    END
+                ) AS avg_interval_last_7_days,
+                SUM(
+                    CASE
+                        WHEN intervals.taken_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                        THEN 1
+                        ELSE 0
+                    END
+                ) AS samples_last_7_days,
+                AVG(intervals.interval_minutes) AS avg_interval_last_90_days,
+                COUNT(*) AS samples_last_90_days
+         FROM (' . $doseIntervalSql . ') intervals
+         WHERE intervals.interval_minutes IS NOT NULL
+          AND intervals.interval_minutes >= 0'
+    );
+    $doseIntervalSummaryRow = $doseIntervalSummaryStatement->fetch();
+    $avgDoseIntervalThisWeek = isset($doseIntervalSummaryRow['avg_interval_this_week'])
+        && $doseIntervalSummaryRow['avg_interval_this_week'] !== null
+        ? round((float) $doseIntervalSummaryRow['avg_interval_this_week'], 2)
+        : null;
+    $doseIntervalThisWeekSamples = isset($doseIntervalSummaryRow['samples_this_week'])
+        ? (int) $doseIntervalSummaryRow['samples_this_week']
+        : 0;
+    $avgDoseIntervalLast7Days = isset($doseIntervalSummaryRow['avg_interval_last_7_days'])
+        && $doseIntervalSummaryRow['avg_interval_last_7_days'] !== null
+        ? round((float) $doseIntervalSummaryRow['avg_interval_last_7_days'], 2)
+        : null;
+    $doseIntervalLast7DaysSamples = isset($doseIntervalSummaryRow['samples_last_7_days'])
+        ? (int) $doseIntervalSummaryRow['samples_last_7_days']
+        : 0;
+    $avgDoseIntervalLast90Days = isset($doseIntervalSummaryRow['avg_interval_last_90_days'])
+        && $doseIntervalSummaryRow['avg_interval_last_90_days'] !== null
+        ? round((float) $doseIntervalSummaryRow['avg_interval_last_90_days'], 2)
+        : null;
+    $doseIntervalLast90DaysSamples = isset($doseIntervalSummaryRow['samples_last_90_days'])
+        ? (int) $doseIntervalSummaryRow['samples_last_90_days']
+        : 0;
+
+    $doseIntervalWeeklyStatement = $pdo->query(
+        'SELECT MIN(DATE(intervals.taken_at)) AS week_start,
+                AVG(intervals.interval_minutes) AS avg_interval_minutes,
+                COUNT(*) AS samples
+         FROM (' . $doseIntervalSql . ') intervals
+         WHERE intervals.interval_minutes IS NOT NULL
+           AND intervals.interval_minutes >= 0
+           AND intervals.taken_at >= DATE_SUB(CURDATE(), INTERVAL 12 WEEK)
+         GROUP BY YEARWEEK(intervals.taken_at, 1)
+         ORDER BY YEARWEEK(intervals.taken_at, 1)'
+    );
+    $doseIntervalWeeklyRows = $doseIntervalWeeklyStatement->fetchAll();
+    $doseIntervalWeekly = array_values(array_map(
+        static fn(array $row): array => [
+            'week_start' => isset($row['week_start']) ? (string) $row['week_start'] : null,
+            'label' => isset($row['week_start']) && $row['week_start'] !== null
+                ? ('Week of ' . formatDateOnly((string) $row['week_start']))
+                : 'Unknown',
+            'avg_interval_minutes' => isset($row['avg_interval_minutes']) && $row['avg_interval_minutes'] !== null
+                ? round((float) $row['avg_interval_minutes'], 2)
+                : null,
+            'samples' => (int) ($row['samples'] ?? 0),
+        ],
+        $doseIntervalWeeklyRows
+    ));
+
+    $doseIntervalWeekdayStatement = $pdo->query(
+        'SELECT WEEKDAY(intervals.taken_at) AS weekday_index,
+                AVG(intervals.interval_minutes) AS avg_interval_minutes,
+                COUNT(*) AS samples
+         FROM (' . $doseIntervalSql . ') intervals
+         WHERE intervals.interval_minutes IS NOT NULL
+           AND intervals.interval_minutes >= 0
+         GROUP BY WEEKDAY(intervals.taken_at)
+         ORDER BY WEEKDAY(intervals.taken_at)'
+    );
+    $doseIntervalWeekdayRows = $doseIntervalWeekdayStatement->fetchAll();
+    $doseIntervalWeekdayPatterns = [];
+    foreach ($doseIntervalWeekdayRows as $row) {
+        $weekdayIndex = (int) ($row['weekday_index'] ?? -1);
+        if (!isset($weekdayNames[$weekdayIndex])) {
+            continue;
+        }
+
+        $doseIntervalWeekdayPatterns[] = [
+            'weekday_index' => $weekdayIndex,
+            'weekday_label' => $weekdayNames[$weekdayIndex],
+            'avg_interval_minutes' => isset($row['avg_interval_minutes']) && $row['avg_interval_minutes'] !== null
+                ? round((float) $row['avg_interval_minutes'], 2)
+                : null,
+            'samples' => (int) ($row['samples'] ?? 0),
+        ];
+    }
+
+    $dailyDoseIntervalStatement = $pdo->query(
+        'SELECT DATE(intervals.taken_at) AS day_date,
+                AVG(intervals.interval_minutes) AS avg_interval_minutes,
+                COUNT(*) AS samples
+         FROM (' . $doseIntervalSql . ') intervals
+         WHERE intervals.interval_minutes IS NOT NULL
+           AND intervals.interval_minutes >= 0
+           AND intervals.taken_at >= DATE_SUB(CURDATE(), INTERVAL 45 DAY)
+         GROUP BY DATE(intervals.taken_at)
+         ORDER BY DATE(intervals.taken_at)'
+    );
+    $dailyDoseIntervalRows = $dailyDoseIntervalStatement->fetchAll();
+
+    $dailyDoseIntervalsByDate = [];
+    foreach ($dailyDoseIntervalRows as $row) {
+        $dayDate = isset($row['day_date']) ? (string) $row['day_date'] : '';
+        if ($dayDate === '') {
+            continue;
+        }
+
+        $avgIntervalMinutes = isset($row['avg_interval_minutes']) && $row['avg_interval_minutes'] !== null
+            ? (float) $row['avg_interval_minutes']
+            : null;
+        $samples = (int) ($row['samples'] ?? 0);
+        if ($avgIntervalMinutes === null || $samples <= 0) {
+            continue;
+        }
+
+        $dailyDoseIntervalsByDate[$dayDate] = [
+            'avg_interval_minutes' => $avgIntervalMinutes,
+            'samples' => $samples,
+        ];
+    }
+
+    $rollingDoseIntervalRows = [];
+    $rollingStartDate = (new DateTimeImmutable('today'))->modify('-29 days');
+    for ($dayOffset = 0; $dayOffset < 30; $dayOffset += 1) {
+        $currentDay = $rollingStartDate->modify('+' . $dayOffset . ' days');
+        $windowWeightedMinutes = 0.0;
+        $windowSamples = 0;
+
+        for ($windowOffset = 6; $windowOffset >= 0; $windowOffset -= 1) {
+            $windowDay = $currentDay->modify('-' . $windowOffset . ' days')->format('Y-m-d');
+            if (!isset($dailyDoseIntervalsByDate[$windowDay])) {
+                continue;
+            }
+
+            $windowDayStats = $dailyDoseIntervalsByDate[$windowDay];
+            $samples = (int) ($windowDayStats['samples'] ?? 0);
+            $avgIntervalMinutes = (float) ($windowDayStats['avg_interval_minutes'] ?? 0);
+            if ($samples <= 0) {
+                continue;
+            }
+
+            $windowSamples += $samples;
+            $windowWeightedMinutes += $avgIntervalMinutes * $samples;
+        }
+
+        $rollingAverageMinutes = $windowSamples > 0
+            ? round($windowWeightedMinutes / $windowSamples, 2)
+            : null;
+
+        $rollingDoseIntervalRows[] = [
+            'date' => $currentDay->format('Y-m-d'),
+            'label' => formatDateOnly($currentDay->format('Y-m-d')),
+            'avg_interval_minutes' => $rollingAverageMinutes,
+            'samples' => $windowSamples,
+        ];
+    }
+
     $rankedDoseSql = 'SELECT l1.id,
                              l1.taken_at,
                              l1.medicine_id,
@@ -1017,11 +1219,20 @@ function loadTrends(PDO $pdo): array
             'active_day_ratio_last_30_days' => round(($activeDaysLast30Days / 30) * 100, 1),
             'avg_rating_this_week' => $avgRatingThisWeek,
             'avg_rating_last_90_days' => $avgRatingLast90Days,
+            'avg_dose_interval_this_week_minutes' => $avgDoseIntervalThisWeek,
+            'avg_dose_interval_last_7_days_minutes' => $avgDoseIntervalLast7Days,
+            'avg_dose_interval_last_90_days_minutes' => $avgDoseIntervalLast90Days,
+            'dose_interval_this_week_samples' => $doseIntervalThisWeekSamples,
+            'dose_interval_last_7_days_samples' => $doseIntervalLast7DaysSamples,
+            'dose_interval_last_90_days_samples' => $doseIntervalLast90DaysSamples,
         ],
         'monthly_average_rating' => $monthlyAverageRating,
         'weekly_entries' => $weeklyEntries,
         'top_medicines_90_days' => $topMedicines,
         'weekday_patterns_90_days' => $weekdayPatterns,
+        'dose_interval_weekly_12_weeks' => $doseIntervalWeekly,
+        'dose_interval_weekday_90_days' => $doseIntervalWeekdayPatterns,
+        'dose_interval_rolling_7_days_30_days' => $rollingDoseIntervalRows,
         'dose_weekday_patterns_90_days' => [
             'available_orders' => $availableDoseOrders,
             'available_medicines' => $availableMedicines,

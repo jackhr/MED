@@ -11,6 +11,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const metricAvg90 = document.getElementById("trend-avg-90");
   const metricEntries30 = document.getElementById("trend-entries-30");
   const metricActiveDays30 = document.getElementById("trend-active-days-30");
+  const metricDoseGapWeek = document.getElementById("trend-dose-gap-week");
+  const metricDoseGap7d = document.getElementById("trend-dose-gap-7d");
 
   const monthlyBody = document.getElementById("trend-monthly-body");
   const weeklyBody = document.getElementById("trend-weekly-body");
@@ -23,6 +25,16 @@ document.addEventListener("DOMContentLoaded", () => {
   const chartWeekdayPattern = document.getElementById("chart-weekday-pattern");
   const chartDoseOrder = document.getElementById("chart-dose-order");
   const chartDoseOrderMeta = document.getElementById("chart-dose-order-meta");
+  const chartDoseInterval = document.getElementById("chart-dose-interval");
+  const chartDoseIntervalMeta = document.getElementById(
+    "chart-dose-interval-meta"
+  );
+  const chartDoseIntervalRolling = document.getElementById(
+    "chart-dose-interval-rolling"
+  );
+  const chartDoseIntervalRollingMeta = document.getElementById(
+    "chart-dose-interval-rolling-meta"
+  );
   const doseOrderControls = document.getElementById("dose-order-controls");
   const doseMedicineControls = document.getElementById("dose-medicine-controls");
 
@@ -122,6 +134,30 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     return `${hours12}:${String(minutes).padStart(2, "0")} ${period}`;
+  }
+
+  function formatMinutesAsDuration(value, compact = false) {
+    if (value === null || value === undefined || value === "") {
+      return "--";
+    }
+
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return "--";
+    }
+
+    const totalMinutes = Math.max(0, Math.round(numeric));
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+
+    if (hours <= 0) {
+      return `${minutes}m`;
+    }
+    if (minutes === 0) {
+      return compact ? `${hours}h` : `${hours}h 0m`;
+    }
+
+    return `${hours}h ${minutes}m`;
   }
 
   function normalizeDoseOrder(value) {
@@ -613,6 +649,8 @@ document.addEventListener("DOMContentLoaded", () => {
     clearChart(chartTopMedicines, message);
     clearChart(chartWeekdayPattern, message);
     clearChart(chartDoseOrder, message);
+    clearChart(chartDoseInterval, message);
+    clearChart(chartDoseIntervalRolling, message);
   }
 
   function buildDoseWeekdaySeries(rows, doseOrder, selectedMedicine) {
@@ -953,6 +991,157 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  function renderDoseIntervalTrend(trends) {
+    const weeklyRows = Array.isArray(trends?.dose_interval_weekly_12_weeks)
+      ? trends.dose_interval_weekly_12_weeks
+      : [];
+    const summary = trends?.summary || {};
+
+    const avgIntervalThisWeekRaw = Number(
+      summary.avg_dose_interval_this_week_minutes
+    );
+    const avgIntervalThisWeek = Number.isFinite(avgIntervalThisWeekRaw)
+      ? avgIntervalThisWeekRaw
+      : null;
+    const intervalThisWeekSamplesRaw = Number(
+      summary.dose_interval_this_week_samples
+    );
+    const intervalThisWeekSamples =
+      Number.isFinite(intervalThisWeekSamplesRaw) && intervalThisWeekSamplesRaw > 0
+        ? Math.round(intervalThisWeekSamplesRaw)
+        : 0;
+
+    const avgIntervalLast7DaysRaw = Number(
+      summary.avg_dose_interval_last_7_days_minutes
+    );
+    const avgIntervalLast7Days = Number.isFinite(avgIntervalLast7DaysRaw)
+      ? avgIntervalLast7DaysRaw
+      : null;
+    const intervalLast7DaysSamplesRaw = Number(
+      summary.dose_interval_last_7_days_samples
+    );
+    const intervalLast7DaysSamples =
+      Number.isFinite(intervalLast7DaysSamplesRaw) && intervalLast7DaysSamplesRaw > 0
+        ? Math.round(intervalLast7DaysSamplesRaw)
+        : 0;
+
+    const avgIntervalLast90DaysRaw = Number(
+      summary.avg_dose_interval_last_90_days_minutes
+    );
+    const avgIntervalLast90Days = Number.isFinite(avgIntervalLast90DaysRaw)
+      ? avgIntervalLast90DaysRaw
+      : null;
+    const intervalLast90DaysSamplesRaw = Number(
+      summary.dose_interval_last_90_days_samples
+    );
+    const intervalLast90DaysSamples =
+      Number.isFinite(intervalLast90DaysSamplesRaw) && intervalLast90DaysSamplesRaw > 0
+        ? Math.round(intervalLast90DaysSamplesRaw)
+        : 0;
+
+    if (metricDoseGapWeek) {
+      metricDoseGapWeek.textContent =
+        avgIntervalThisWeek !== null && intervalThisWeekSamples > 0
+          ? formatMinutesAsDuration(avgIntervalThisWeek)
+          : "--";
+    }
+    if (metricDoseGap7d) {
+      metricDoseGap7d.textContent =
+        avgIntervalLast7Days !== null && intervalLast7DaysSamples > 0
+          ? formatMinutesAsDuration(avgIntervalLast7Days)
+          : "--";
+    }
+
+    const weeklySummaryText =
+      avgIntervalThisWeek !== null && intervalThisWeekSamples > 0
+        ? `This week average gap: ${formatMinutesAsDuration(
+            avgIntervalThisWeek
+          )} (${intervalThisWeekSamples} gaps).`
+        : "No dose-gap samples this week yet.";
+    const rollingSevenDaySummaryText =
+      avgIntervalLast7Days !== null && intervalLast7DaysSamples > 0
+        ? `Rolling 7-day average gap: ${formatMinutesAsDuration(
+            avgIntervalLast7Days
+          )} (${intervalLast7DaysSamples} gaps).`
+        : "No rolling 7-day dose-gap samples yet.";
+    const ninetyDaySummaryText =
+      avgIntervalLast90Days !== null && intervalLast90DaysSamples > 0
+        ? `Last 90-day average gap: ${formatMinutesAsDuration(
+            avgIntervalLast90Days
+          )} (${intervalLast90DaysSamples} gaps).`
+        : "No dose-gap data in the last 90 days.";
+
+    if (chartDoseIntervalMeta) {
+      chartDoseIntervalMeta.textContent = `Average time between consecutive doses by week over the last 12 weeks. ${weeklySummaryText} ${rollingSevenDaySummaryText} ${ninetyDaySummaryText}`;
+    }
+
+    const chartPoints = weeklyRows
+      .map((row) => ({
+        label: String(row.label || "-").replace(/^Week of\s+/i, ""),
+        value:
+          Number.isFinite(Number(row.avg_interval_minutes)) &&
+          Number(row.avg_interval_minutes) >= 0
+            ? Number(row.avg_interval_minutes) / 60
+            : Number.NaN,
+      }))
+      .filter((point) => Number.isFinite(point.value));
+
+    renderLineChart(chartDoseInterval, chartPoints, {
+      yMin: 0,
+      ariaLabel: "Average time between doses by week",
+      tickFormatter: (value) => formatMinutesAsDuration(value * 60, true),
+      valueFormatter: (value) => formatMinutesAsDuration(value * 60),
+      labelFormatter: (label) => shortenLabel(label, 8),
+    });
+  }
+
+  function renderRollingDoseIntervalTrend(trends) {
+    const rollingRows = Array.isArray(trends?.dose_interval_rolling_7_days_30_days)
+      ? trends.dose_interval_rolling_7_days_30_days
+      : [];
+
+    const latestRowWithSamples = [...rollingRows]
+      .reverse()
+      .find((row) => Number(row.samples) > 0);
+
+    if (chartDoseIntervalRollingMeta) {
+      if (
+        latestRowWithSamples &&
+        Number.isFinite(Number(latestRowWithSamples.avg_interval_minutes))
+      ) {
+        chartDoseIntervalRollingMeta.textContent = `Rolling 7-day average time between consecutive doses over the last 30 days. Latest window (${latestRowWithSamples.label || latestRowWithSamples.date || "today"}): ${formatMinutesAsDuration(
+          Number(latestRowWithSamples.avg_interval_minutes)
+        )} (${formatCount(latestRowWithSamples.samples)} gaps).`;
+      } else {
+        chartDoseIntervalRollingMeta.textContent =
+          "Rolling 7-day average time between consecutive doses over the last 30 days. No rolling-window samples yet.";
+      }
+    }
+
+    const chartPoints = rollingRows.map((row) => ({
+      label: String(row.date || row.label || "-"),
+      value:
+        Number.isFinite(Number(row.avg_interval_minutes)) &&
+        Number(row.avg_interval_minutes) >= 0
+          ? Number(row.avg_interval_minutes) / 60
+          : Number.NaN,
+    }));
+
+    renderLineChart(chartDoseIntervalRolling, chartPoints, {
+      yMin: 0,
+      ariaLabel: "Rolling 7-day average time between doses",
+      tickFormatter: (value) => formatMinutesAsDuration(value * 60, true),
+      valueFormatter: (value) => formatMinutesAsDuration(value * 60),
+      labelFormatter: (label) => {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(label)) {
+          const monthDay = label.slice(5);
+          return monthDay.replace("-", "/");
+        }
+        return shortenLabel(label, 8);
+      },
+    });
+  }
+
   function renderTrends(trends) {
     const monthlyRows = Array.isArray(trends.monthly_average_rating)
       ? trends.monthly_average_rating
@@ -1063,6 +1252,8 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     renderDoseOrderTrend(trends);
+    renderDoseIntervalTrend(trends);
+    renderRollingDoseIntervalTrend(trends);
   }
 
   if (!dbReady) {

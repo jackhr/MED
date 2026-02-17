@@ -96,6 +96,14 @@ $dbReady = $pdo instanceof PDO;
                 <p class="metric-label">Active Days Last 30</p>
                 <p id="trend-active-days-30" class="metric-value">--</p>
             </article>
+            <article class="metric-card">
+                <p class="metric-label">Avg Dose Gap This Week</p>
+                <p id="trend-dose-gap-week" class="metric-value">--</p>
+            </article>
+            <article class="metric-card">
+                <p class="metric-label">Avg Dose Gap Last 7 Days</p>
+                <p id="trend-dose-gap-7d" class="metric-value">--</p>
+            </article>
         </section>
 
         <section class="trends-grid trends-charts-grid" aria-label="Trend Charts">
@@ -137,6 +145,22 @@ $dbReady = $pdo instanceof PDO;
                 <div id="dose-order-controls" class="dose-order-controls" aria-label="Dose order selector"></div>
                 <div id="dose-medicine-controls" class="dose-order-controls" aria-label="Medicine selector" hidden></div>
                 <div id="chart-dose-order" class="chart-shell">
+                    <p class="chart-empty">Loading chart...</p>
+                </div>
+            </article>
+
+            <article class="card trends-card-wide">
+                <h2>Dose Gap Trend</h2>
+                <p id="chart-dose-interval-meta" class="meta-text">Average time between consecutive doses by week over the last 12 weeks.</p>
+                <div id="chart-dose-interval" class="chart-shell">
+                    <p class="chart-empty">Loading chart...</p>
+                </div>
+            </article>
+
+            <article class="card trends-card-wide">
+                <h2>Rolling 7-Day Dose Gap</h2>
+                <p id="chart-dose-interval-rolling-meta" class="meta-text">Rolling 7-day average time between consecutive doses over the last 30 days.</p>
+                <div id="chart-dose-interval-rolling" class="chart-shell">
                     <p class="chart-empty">Loading chart...</p>
                 </div>
             </article>
