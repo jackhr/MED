@@ -1222,10 +1222,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }" x2="${width - padding.right}" y2="${height - padding.bottom}"></line>
         ${gridLines.join("")}
         ${yLabels.join("")}
-        ${referenceLineElements.join("")}
         ${bars.join("")}
         ${referenceLegendElements.join("")}
         ${xLabels.join("")}
+        ${referenceLineElements.join("")}
       </svg>
     `;
 
