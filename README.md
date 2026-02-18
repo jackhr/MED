@@ -18,6 +18,7 @@ PHP + MySQL web app for tracking medicine intake, trends, schedules, and reminde
 - Schedules page with push notification reminders
 - Settings page for account profile and password updates
 - Export and backup tools (CSV, JSON, SQL)
+- Server-side request/reminder logging to file for troubleshooting
 - Environment-based config via `.env`
 
 ## Main Pages
@@ -102,11 +103,15 @@ MED/
    ```bash
    php scripts/generate_vapid_keys.php
    ```
-6. Run locally:
+6. Optional but recommended reminder logging config in `.env`:
+   - `APP_LOG_ENABLED=1`
+   - `APP_LOG_FILE=logs/medicine.log`
+   - `REMINDER_GRACE_SECONDS=90`
+7. Run locally:
    ```bash
    php -S localhost:8080 -t public
    ```
-7. Open `http://localhost:8080`.
+8. Open `http://localhost:8080`.
 
 ## Cron Reminders
 - Reminder processing endpoint:
@@ -114,8 +119,10 @@ MED/
 - cPanel cron command example:
   - `/usr/bin/curl -fsS "https://your-domain/index.php?api=process_reminders&token=YOUR_REMINDER_CRON_TOKEN" >/dev/null`
 - Set a strong `REMINDER_CRON_TOKEN` in `.env`.
+- `REMINDER_GRACE_SECONDS` adds tolerance for late cron starts to avoid missed reminders.
 
 ## Notes
 - Schema/database defaults to `utf8mb4` for emoji-safe content.
 - Keep `DB_NAME` in `.env` aligned with the database selected in `sql/init.sql`.
 - All app pages require login except `login.php`.
+- Reminder + push logs are written to `APP_LOG_FILE` (default: `logs/medicine.log`, fallback: system temp dir).

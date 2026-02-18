@@ -1642,9 +1642,13 @@ document.addEventListener("DOMContentLoaded", () => {
         method: "POST",
       });
       const result = payload.result || {};
-      showStatus(
-        `Reminder check complete. Due: ${result.due || 0}, sent: ${result.sent || 0}.`
-      );
+      const due = Number(result.due || 0);
+      const sent = Number(result.sent || 0);
+      const attempted = Number(result.push_attempted || 0);
+      const failed = Number(result.push_failed || 0);
+      const deactivated = Number(result.push_deactivated || 0);
+      const message = `Reminder check complete. Due: ${due}, sent: ${sent}, attempted: ${attempted}, failed: ${failed}, deactivated: ${deactivated}.`;
+      showStatus(message, failed > 0 || (due > 0 && sent === 0) ? "error" : "success");
     } catch (error) {
       showStatus(error.message, "error");
     } finally {

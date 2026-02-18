@@ -144,6 +144,115 @@ function jsonResponse(array $payload, int $statusCode = 200): void
     echo $json;
 }
 
+function envFlag(string $key, bool $default = false): bool
+{
+    $raw = Env::get($key, $default ? '1' : '0');
+    if ($raw === null) {
+        return $default;
+    }
+
+    $normalized = strtolower(trim($raw));
+    if (in_array($normalized, ['1', 'true', 'yes', 'on'], true)) {
+        return true;
+    }
+    if (in_array($normalized, ['0', 'false', 'no', 'off', ''], true)) {
+        return false;
+    }
+
+    return $default;
+}
+
+function appLogEnabled(): bool
+{
+    return envFlag('APP_LOG_ENABLED', true);
+}
+
+function appLogPath(): string
+{
+    $configuredPath = trim((string) (Env::get('APP_LOG_FILE', '') ?? ''));
+    if ($configuredPath === '') {
+        return dirname(__DIR__) . '/logs/medicine.log';
+    }
+
+    if (str_starts_with($configuredPath, '/')) {
+        return $configuredPath;
+    }
+
+    return dirname(__DIR__) . '/' . ltrim($configuredPath, '/');
+}
+
+function appendLogLine(string $line): bool
+{
+    $primaryPath = appLogPath();
+    $fallbackPath = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'medicine.log';
+    $paths = [$primaryPath, $fallbackPath];
+
+    foreach ($paths as $path) {
+        $directory = dirname($path);
+        if (!is_dir($directory)) {
+            @mkdir($directory, 0775, true);
+        }
+
+        if (!is_dir($directory) || !is_writable($directory)) {
+            continue;
+        }
+
+        $bytesWritten = @file_put_contents($path, $line, FILE_APPEND | LOCK_EX);
+        if ($bytesWritten !== false) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function requestIp(): string
+{
+    $forwardedFor = trim((string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''));
+    if ($forwardedFor !== '') {
+        $parts = array_map('trim', explode(',', $forwardedFor));
+        if (isset($parts[0]) && $parts[0] !== '') {
+            return substr($parts[0], 0, 120);
+        }
+    }
+
+    $remoteAddr = trim((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+    if ($remoteAddr !== '') {
+        return substr($remoteAddr, 0, 120);
+    }
+
+    return 'unknown';
+}
+
+function logEvent(string $level, string $event, array $context = []): void
+{
+    if (!appLogEnabled()) {
+        return;
+    }
+
+    $timezoneName = Env::get('APP_TIMEZONE', 'UTC') ?? 'UTC';
+    $timezone = new DateTimeZone($timezoneName);
+    $timestamp = (new DateTimeImmutable('now', $timezone))->format(DateTimeInterface::ATOM);
+    $record = [
+        'timestamp' => $timestamp,
+        'level' => strtolower(trim($level)) !== '' ? strtolower(trim($level)) : 'info',
+        'event' => trim($event) !== '' ? trim($event) : 'app.event',
+        'context' => $context,
+    ];
+
+    $json = json_encode($record, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if (!is_string($json)) {
+        $json = sprintf(
+            '[%s] %s %s',
+            $timestamp,
+            strtoupper($record['level']),
+            (string) $record['event']
+        );
+    }
+
+    appendLogLine($json . PHP_EOL);
+}
+
 function requestPayload(): array
 {
     $contentType = (string) ($_SERVER['CONTENT_TYPE'] ?? '');
@@ -1672,7 +1781,7 @@ function activePushSubscriptions(PDO $pdo, int $userId): array
     return is_array($rows) ? $rows : [];
 }
 
-function dispatchPushForUser(PDO $pdo, int $userId): array
+function dispatchPushForUser(PDO $pdo, int $userId, string $source = 'manual', array $context = []): array
 {
     $subscriptions = activePushSubscriptions($pdo, $userId);
     $attempted = count($subscriptions);
@@ -1681,6 +1790,15 @@ function dispatchPushForUser(PDO $pdo, int $userId): array
     $deactivated = 0;
     $statusBreakdown = [];
     $failureDetails = [];
+
+    $baseContext = array_merge([
+        'source' => $source,
+        'user_id' => $userId,
+    ], $context);
+
+    if ($attempted === 0) {
+        logEvent('warning', 'push.dispatch.no_subscriptions', $baseContext);
+    }
 
     foreach ($subscriptions as $subscription) {
         $endpoint = (string) ($subscription['endpoint'] ?? '');
@@ -1708,6 +1826,14 @@ function dispatchPushForUser(PDO $pdo, int $userId): array
             'error' => substr(trim((string) ($result['error'] ?? '')), 0, 220),
         ];
 
+        logEvent('error', 'push.dispatch.failed', array_merge($baseContext, [
+            'subscription_id' => (int) ($subscription['id'] ?? 0),
+            'status' => $status,
+            'transport' => (string) ($result['transport'] ?? 'unknown'),
+            'host' => $host !== '' ? $host : 'unknown',
+            'error' => substr(trim((string) ($result['error'] ?? '')), 0, 220),
+        ]));
+
         if ($status === 404 || $status === 410) {
             $deactivateStatement = $pdo->prepare(
                 'UPDATE push_subscriptions
@@ -1716,10 +1842,14 @@ function dispatchPushForUser(PDO $pdo, int $userId): array
             );
             $deactivateStatement->execute([':id' => (int) ($subscription['id'] ?? 0)]);
             $deactivated += 1;
+            logEvent('warning', 'push.subscription.deactivated', array_merge($baseContext, [
+                'subscription_id' => (int) ($subscription['id'] ?? 0),
+                'status' => $status,
+            ]));
         }
     }
 
-    return [
+    $summary = [
         'attempted' => $attempted,
         'sent' => $sent,
         'failed' => $failed,
@@ -1727,16 +1857,33 @@ function dispatchPushForUser(PDO $pdo, int $userId): array
         'status_breakdown' => $statusBreakdown,
         'failures' => $failureDetails,
     ];
+
+    logEvent($failed > 0 ? 'warning' : 'info', 'push.dispatch.completed', array_merge(
+        $baseContext,
+        [
+            'attempted' => $attempted,
+            'sent' => $sent,
+            'failed' => $failed,
+            'deactivated' => $deactivated,
+        ]
+    ));
+
+    return $summary;
 }
 
-function processDueReminders(PDO $pdo, ?int $userId = null): array
+function processDueReminders(PDO $pdo, ?int $userId = null, array $sourceContext = []): array
 {
     $timezoneName = Env::get('APP_TIMEZONE', 'UTC') ?? 'UTC';
     $timezone = new DateTimeZone($timezoneName);
     $now = new DateTimeImmutable('now', $timezone);
     $windowMinutesRaw = (int) (Env::get('REMINDER_WINDOW_MINUTES', '5') ?? 5);
     $windowMinutes = max(1, min(30, $windowMinutesRaw));
+    $graceSecondsRaw = (int) (Env::get('REMINDER_GRACE_SECONDS', '90') ?? 90);
+    $graceSeconds = max(0, min(300, $graceSecondsRaw));
     $windowStart = $now->sub(new DateInterval('PT' . $windowMinutes . 'M'));
+    if ($graceSeconds > 0) {
+        $windowStart = $windowStart->sub(new DateInterval('PT' . $graceSeconds . 'S'));
+    }
 
     $query = 'SELECT s.id,
                      s.user_id,
@@ -1766,6 +1913,18 @@ function processDueReminders(PDO $pdo, ?int $userId = null): array
     $due = 0;
     $sent = 0;
     $skipped = 0;
+    $pushAttempted = 0;
+    $pushFailed = 0;
+    $pushDeactivated = 0;
+    $failureCount = 0;
+
+    logEvent('info', 'reminders.process.started', array_merge($sourceContext, [
+        'user_scope' => $userId,
+        'window_minutes' => $windowMinutes,
+        'grace_seconds' => $graceSeconds,
+        'schedule_count' => count($schedules),
+        'now' => $now->format(DateTimeInterface::ATOM),
+    ]));
 
     foreach ($schedules as $schedule) {
         $processed += 1;
@@ -1777,6 +1936,10 @@ function processDueReminders(PDO $pdo, ?int $userId = null): array
         );
         if (!$scheduledFor instanceof DateTimeImmutable) {
             $skipped += 1;
+            logEvent('warning', 'reminders.schedule.invalid_time', array_merge($sourceContext, [
+                'schedule_id' => (int) ($schedule['id'] ?? 0),
+                'time_of_day' => $scheduleTime,
+            ]));
             continue;
         }
 
@@ -1803,11 +1966,24 @@ function processDueReminders(PDO $pdo, ?int $userId = null): array
         } catch (Throwable $exception) {
             // Unique index prevents duplicate sends for the same schedule occurrence.
             $skipped += 1;
+            logEvent('info', 'reminders.schedule.duplicate_or_insert_error', array_merge($sourceContext, [
+                'schedule_id' => (int) ($schedule['id'] ?? 0),
+                'scheduled_for' => $scheduledForDb,
+                'message' => substr($exception->getMessage(), 0, 220),
+            ]));
             continue;
         }
 
-        $dispatchResult = dispatchPushForUser($pdo, (int) $schedule['user_id']);
+        $dispatchResult = dispatchPushForUser($pdo, (int) $schedule['user_id'], 'schedule', [
+            'schedule_id' => (int) ($schedule['id'] ?? 0),
+            'scheduled_for' => $scheduledForDb,
+            'medicine_id' => (int) ($schedule['medicine_id'] ?? 0),
+        ]);
         $sent += (int) ($dispatchResult['sent'] ?? 0);
+        $pushAttempted += (int) ($dispatchResult['attempted'] ?? 0);
+        $pushFailed += (int) ($dispatchResult['failed'] ?? 0);
+        $pushDeactivated += (int) ($dispatchResult['deactivated'] ?? 0);
+        $failureCount += count((array) ($dispatchResult['failures'] ?? []));
         $status = ((int) ($dispatchResult['sent'] ?? 0) > 0) ? 'sent' : 'failed';
         $errorMessage = ((int) ($dispatchResult['attempted'] ?? 0) === 0)
             ? 'No active browser subscriptions.'
@@ -1829,16 +2005,41 @@ function processDueReminders(PDO $pdo, ?int $userId = null): array
                 ':id' => $dispatchId,
             ]);
         }
+
+        if ($status !== 'sent') {
+            logEvent('warning', 'reminders.schedule.dispatch_not_sent', array_merge($sourceContext, [
+                'schedule_id' => (int) ($schedule['id'] ?? 0),
+                'scheduled_for' => $scheduledForDb,
+                'dispatch' => [
+                    'attempted' => (int) ($dispatchResult['attempted'] ?? 0),
+                    'sent' => (int) ($dispatchResult['sent'] ?? 0),
+                    'failed' => (int) ($dispatchResult['failed'] ?? 0),
+                    'deactivated' => (int) ($dispatchResult['deactivated'] ?? 0),
+                ],
+            ]));
+        }
     }
 
-    return [
+    $result = [
         'processed' => $processed,
         'due' => $due,
         'sent' => $sent,
         'skipped' => $skipped,
         'window_minutes' => $windowMinutes,
+        'grace_seconds' => $graceSeconds,
+        'push_attempted' => $pushAttempted,
+        'push_failed' => $pushFailed,
+        'push_deactivated' => $pushDeactivated,
+        'failure_count' => $failureCount,
         'processed_at' => $now->format(DateTimeInterface::ATOM),
     ];
+
+    logEvent(($pushFailed > 0 || $due > 0 && $sent === 0) ? 'warning' : 'info', 'reminders.process.completed', array_merge(
+        $sourceContext,
+        $result
+    ));
+
+    return $result;
 }
 
 function loadLatestPushNotificationForUser(PDO $pdo, int $userId): array
@@ -2277,7 +2478,17 @@ if ($apiAction !== '') {
                 && $providedToken !== ''
                 && hash_equals($expectedToken, $providedToken);
 
+            $requestContext = [
+                'api' => 'process_reminders',
+                'method' => (string) ($_SERVER['REQUEST_METHOD'] ?? 'UNKNOWN'),
+                'remote_ip' => requestIp(),
+                'user_agent' => substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 220),
+                'auth_mode' => $isCronAuthorized ? 'cron_token' : 'session',
+                'user_id' => $currentUserId,
+            ];
+
             if (!$isCronAuthorized && $currentUserId === null) {
+                logEvent('warning', 'reminders.process.unauthorized', $requestContext);
                 jsonResponse([
                     'ok' => false,
                     'error' => 'Authentication required.',
@@ -2285,7 +2496,12 @@ if ($apiAction !== '') {
                 exit;
             }
 
-            $result = processDueReminders($pdo, $isCronAuthorized ? null : $currentUserId);
+            logEvent('info', 'reminders.process.requested', $requestContext);
+            $result = processDueReminders(
+                $pdo,
+                $isCronAuthorized ? null : $currentUserId,
+                $requestContext
+            );
             jsonResponse([
                 'ok' => true,
                 'result' => $result,
@@ -2553,7 +2769,10 @@ if ($apiAction !== '') {
                 exit;
             }
 
-            $dispatch = dispatchPushForUser($pdo, $currentUserId);
+            $dispatch = dispatchPushForUser($pdo, $currentUserId, 'push_test', [
+                'api' => 'push_test',
+                'remote_ip' => requestIp(),
+            ]);
             jsonResponse([
                 'ok' => true,
                 'dispatch' => $dispatch,
@@ -2698,6 +2917,13 @@ if ($apiAction !== '') {
         ], 404);
         exit;
     } catch (Throwable $exception) {
+        logEvent('error', 'api.exception', [
+            'api' => $apiAction,
+            'method' => (string) ($_SERVER['REQUEST_METHOD'] ?? 'UNKNOWN'),
+            'remote_ip' => requestIp(),
+            'user_id' => $currentUserId ?? null,
+            'message' => substr($exception->getMessage(), 0, 320),
+        ]);
         jsonResponse([
             'ok' => false,
             'error' => 'Server error: ' . $exception->getMessage(),
