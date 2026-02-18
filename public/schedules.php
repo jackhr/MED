@@ -27,6 +27,8 @@ try {
 
 $dbReady = $pdo instanceof PDO;
 $signedInUsername = Auth::displayLabel() ?? '';
+$workspaceRole = Auth::workspaceRole() ?? 'viewer';
+$canWriteWorkspaceData = Auth::canWrite();
 ?>
 <!doctype html>
 <html lang="en">
@@ -41,7 +43,9 @@ $signedInUsername = Auth::displayLabel() ?? '';
         window.MEDICINE_SCHEDULES_CONFIG = {
             apiPath: "index.php",
             pushPublicKey: <?= json_encode(PushNotifications::publicKey(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
-            pushConfigured: <?= PushNotifications::isConfigured() ? 'true' : 'false' ?>
+            pushConfigured: <?= PushNotifications::isConfigured() ? 'true' : 'false' ?>,
+            workspaceRole: <?= json_encode($workspaceRole, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
+            canWrite: <?= $canWriteWorkspaceData ? 'true' : 'false' ?>
         };
     </script>
     <script src="assets/nav.js" defer></script>
@@ -76,6 +80,7 @@ $signedInUsername = Auth::displayLabel() ?? '';
             <?php if ($signedInUsername !== ''): ?>
                 <p class="meta-text">Signed in as <strong><?= e($signedInUsername) ?></strong></p>
             <?php endif; ?>
+            <p class="meta-text">Workspace role: <strong><?= e(ucfirst($workspaceRole)) ?></strong></p>
         </header>
 
         <?php if ($dbError !== null): ?>

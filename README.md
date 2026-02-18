@@ -4,6 +4,8 @@ PHP + MySQL web app for tracking medicine intake, trends, schedules, and reminde
 
 ## Features
 - Login/logout with DB-backed users (`app_users`)
+- Workspace-scoped data with role-based membership (`workspaces`, `workspace_users`)
+- Owner/editor/viewer permissions with read-only UI + API enforcement for viewers
 - Dashboard with async entry create/edit/delete flows
 - Grouped day history with pagination, filters, and search
 - Medicine management (`medicines`) with quick select or add-new
@@ -63,8 +65,10 @@ MED/
       20260216_add_logged_by_user_to_intake_logs.sql
       20260216_add_profile_fields_to_app_users.sql
       20260216_add_reminder_message_to_dose_schedules.sql
+      20260218_add_workspaces_and_memberships.sql
   scripts/
     generate_vapid_keys.php
+    seed_fake_users.php
   src/
     Auth.php
     Database.php
@@ -82,14 +86,15 @@ MED/
    ```
 3. For existing installs, apply migrations in order:
    ```bash
-   mysql -u root -p < sql/migrations/20260214_add_mood_and_rating.sql
-   mysql -u root -p < sql/migrations/20260214_remove_mood_from_intake_logs.sql
-   mysql -u root -p < sql/migrations/20260215_add_app_users_table.sql
-   mysql -u root -p < sql/migrations/20260215_add_dose_schedules_and_push.sql
-   mysql -u root -p < sql/migrations/20260215_convert_tables_to_utf8mb4.sql
-   mysql -u root -p < sql/migrations/20260216_add_logged_by_user_to_intake_logs.sql
-   mysql -u root -p < sql/migrations/20260216_add_profile_fields_to_app_users.sql
-   mysql -u root -p < sql/migrations/20260216_add_reminder_message_to_dose_schedules.sql
+   mysql -u root -p medicine_log < sql/migrations/20260214_add_mood_and_rating.sql
+   mysql -u root -p medicine_log < sql/migrations/20260214_remove_mood_from_intake_logs.sql
+   mysql -u root -p medicine_log < sql/migrations/20260215_add_app_users_table.sql
+   mysql -u root -p medicine_log < sql/migrations/20260215_add_dose_schedules_and_push.sql
+   mysql -u root -p medicine_log < sql/migrations/20260215_convert_tables_to_utf8mb4.sql
+   mysql -u root -p medicine_log < sql/migrations/20260216_add_logged_by_user_to_intake_logs.sql
+   mysql -u root -p medicine_log < sql/migrations/20260216_add_profile_fields_to_app_users.sql
+   mysql -u root -p medicine_log < sql/migrations/20260216_add_reminder_message_to_dose_schedules.sql
+   mysql -u root -p medicine_log < sql/migrations/20260218_add_workspaces_and_memberships.sql
    ```
 4. Create your first login user:
    ```bash
@@ -98,20 +103,33 @@ MED/
    ```sql
    INSERT INTO app_users (username, password_hash, display_name, email)
    VALUES ('your_username', 'REPLACE_WITH_HASH', 'Your Name', 'you@example.com');
+
+   INSERT INTO workspace_users (workspace_id, user_id, role, is_active)
+   VALUES (
+       (SELECT id FROM workspaces ORDER BY id ASC LIMIT 1),
+       (SELECT id FROM app_users WHERE username = 'your_username' LIMIT 1),
+       'owner',
+       1
+   );
    ```
+   For read-only accounts, use role `'viewer'` in `workspace_users`.
 5. Generate VAPID keys for browser push and set them in `.env`:
    ```bash
    php scripts/generate_vapid_keys.php
    ```
-6. Optional but recommended reminder logging config in `.env`:
+6. Optional: seed two read-only demo users (auto-reads `.env` DB settings):
+   ```bash
+   php scripts/seed_fake_users.php
+   ```
+7. Optional but recommended reminder logging config in `.env`:
    - `APP_LOG_ENABLED=1`
    - `APP_LOG_FILE=logs/medicine.log`
    - `REMINDER_GRACE_SECONDS=90`
-7. Run locally:
+8. Run locally:
    ```bash
    php -S localhost:8080 -t public
    ```
-8. Open `http://localhost:8080`.
+9. Open `http://localhost:8080`.
 
 ## Cron Reminders
 - Reminder processing endpoint:

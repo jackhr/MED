@@ -1,6 +1,7 @@
 document.addEventListener("DOMContentLoaded", () => {
   const config = window.MEDICINE_SCHEDULES_CONFIG || {};
   const apiPath = config.apiPath || "index.php";
+  const canWrite = config.canWrite !== false && config.canWrite !== "false";
 
   const body = document.body;
   const dbReady = body.dataset.dbReady === "1";
@@ -63,6 +64,39 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentEditingScheduleId = null;
   let serviceWorkerRegistration = null;
   let currentPushSubscription = null;
+
+  function applyReadOnlyMode() {
+    if (canWrite) {
+      return;
+    }
+
+    body.classList.add("is-read-only");
+
+    scheduleForm?.querySelectorAll("input, select, textarea, button").forEach((element) => {
+      element.disabled = true;
+    });
+    if (scheduleSubmitButton) {
+      scheduleSubmitButton.textContent = "Read-Only";
+      scheduleSubmitButton.disabled = true;
+    }
+
+    if (scheduleEditDeleteButton) {
+      scheduleEditDeleteButton.disabled = true;
+      scheduleEditDeleteButton.hidden = true;
+    }
+    if (scheduleEditToggleButton) {
+      scheduleEditToggleButton.disabled = true;
+      scheduleEditToggleButton.hidden = true;
+    }
+    if (scheduleEditSubmitButton) {
+      scheduleEditSubmitButton.disabled = true;
+      scheduleEditSubmitButton.textContent = "Read-Only";
+    }
+
+    if (runRemindersButton) {
+      runRemindersButton.disabled = true;
+    }
+  }
 
   function buildApiUrl(action, params = {}) {
     const url = new URL(apiPath, window.location.origin);
@@ -183,6 +217,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function openScheduleEditModal(scheduleId) {
+    if (!canWrite) {
+      showStatus("Read-only access: schedule editing is disabled.", "error");
+      return;
+    }
+
     const schedule = findScheduleById(scheduleId);
     if (!schedule) {
       showStatus("Schedule not found. Refresh and try again.", "error");
@@ -349,14 +388,17 @@ document.addEventListener("DOMContentLoaded", () => {
       row.appendChild(createCell(schedule.is_active ? "Active" : "Paused"));
 
       const actionsCell = document.createElement("td");
-      const editButton = document.createElement("button");
-      editButton.type = "button";
-      editButton.className = "table-action";
-      editButton.dataset.scheduleAction = "edit";
-      editButton.dataset.id = String(schedule.id);
-      editButton.textContent = "Edit";
-
-      actionsCell.appendChild(editButton);
+      if (canWrite) {
+        const editButton = document.createElement("button");
+        editButton.type = "button";
+        editButton.className = "table-action";
+        editButton.dataset.scheduleAction = "edit";
+        editButton.dataset.id = String(schedule.id);
+        editButton.textContent = "Edit";
+        actionsCell.appendChild(editButton);
+      } else {
+        actionsCell.textContent = "Read only";
+      }
       row.appendChild(actionsCell);
       schedulesBody.appendChild(row);
     });
@@ -630,6 +672,11 @@ document.addEventListener("DOMContentLoaded", () => {
     return;
   }
 
+  applyReadOnlyMode();
+  if (!canWrite) {
+    showStatus("Read-only access enabled for this workspace.");
+  }
+
   syncPushButtons();
   if (!pushConfigured) {
     updatePushStatus("Push is not configured. Add VAPID keys in .env.", "error");
@@ -637,6 +684,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   scheduleForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!canWrite) {
+      showStatus("Read-only access: schedule updates are disabled.", "error");
+      return;
+    }
 
     const payload = {
       medicine_id: Number(scheduleMedicineSelect?.value || 0),
@@ -678,6 +729,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   scheduleEditForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!canWrite) {
+      showStatus("Read-only access: schedule editing is disabled.", "error");
+      return;
+    }
 
     const scheduleId = Number(
       scheduleEditId?.value || currentEditingScheduleId || 0
@@ -727,6 +782,11 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   scheduleEditToggleButton?.addEventListener("click", async () => {
+    if (!canWrite) {
+      showStatus("Read-only access: schedule editing is disabled.", "error");
+      return;
+    }
+
     const schedule =
       currentEditingScheduleId !== null
         ? findScheduleById(currentEditingScheduleId)
@@ -772,6 +832,11 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   scheduleEditDeleteButton?.addEventListener("click", async () => {
+    if (!canWrite) {
+      showStatus("Read-only access: schedule deleting is disabled.", "error");
+      return;
+    }
+
     const scheduleId = Number(
       scheduleEditId?.value || currentEditingScheduleId || 0
     );
@@ -809,6 +874,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   schedulesBody?.addEventListener("click", async (event) => {
+    if (!canWrite) {
+      return;
+    }
+
     const actionButton = event.target.closest("button[data-schedule-action]");
     if (!actionButton) {
       return;
@@ -874,6 +943,11 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   runRemindersButton?.addEventListener("click", async () => {
+    if (!canWrite) {
+      showStatus("Read-only access: reminder checks are disabled.", "error");
+      return;
+    }
+
     const button = runRemindersButton;
     if (button) {
       button.disabled = true;

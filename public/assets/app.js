@@ -1,6 +1,7 @@
 document.addEventListener("DOMContentLoaded", () => {
   const config = window.MEDICINE_LOG_CONFIG || {};
   const apiPath = config.apiPath || window.location.pathname;
+  const canWrite = config.canWrite !== false && config.canWrite !== "false";
 
   const body = document.body;
   const dbReady = body.dataset.dbReady === "1";
@@ -106,6 +107,39 @@ document.addEventListener("DOMContentLoaded", () => {
   };
   const entriesById = new Map();
   const schedulesById = new Map();
+
+  function applyReadOnlyMode() {
+    if (canWrite) {
+      return;
+    }
+
+    body.classList.add("is-read-only");
+
+    createForm?.querySelectorAll("input, select, textarea, button").forEach((element) => {
+      element.disabled = true;
+    });
+    if (createSubmitButton) {
+      createSubmitButton.textContent = "Read-Only";
+    }
+
+    if (editSubmitButton) {
+      editSubmitButton.disabled = true;
+    }
+    if (deleteEntryButton) {
+      deleteEntryButton.disabled = true;
+    }
+
+    scheduleForm?.querySelectorAll("input, select, textarea, button").forEach((element) => {
+      element.disabled = true;
+    });
+    if (scheduleSubmitButton) {
+      scheduleSubmitButton.textContent = "Read-Only";
+      scheduleSubmitButton.disabled = true;
+    }
+    if (runRemindersButton) {
+      runRemindersButton.disabled = true;
+    }
+  }
 
   function buildApiUrl(action, params = {}) {
     const url = new URL(apiPath, window.location.origin);
@@ -568,13 +602,17 @@ document.addEventListener("DOMContentLoaded", () => {
         row.appendChild(createCell(entry.notes || ""));
 
         const actionsCell = document.createElement("td");
-        const editButton = document.createElement("button");
-        editButton.type = "button";
-        editButton.className = "table-action";
-        editButton.dataset.action = "edit";
-        editButton.dataset.id = String(entry.id);
-        editButton.textContent = "Edit";
-        actionsCell.appendChild(editButton);
+        if (canWrite) {
+          const editButton = document.createElement("button");
+          editButton.type = "button";
+          editButton.className = "table-action";
+          editButton.dataset.action = "edit";
+          editButton.dataset.id = String(entry.id);
+          editButton.textContent = "Edit";
+          actionsCell.appendChild(editButton);
+        } else {
+          actionsCell.textContent = "Read only";
+        }
         row.appendChild(actionsCell);
 
         entriesBody.appendChild(row);
@@ -755,6 +793,11 @@ document.addEventListener("DOMContentLoaded", () => {
     select.required = resolvedMode === "existing" && medicines.length > 0;
     custom.disabled = resolvedMode !== "new";
     custom.required = resolvedMode === "new";
+
+    if (!canWrite) {
+      select.disabled = true;
+      custom.disabled = true;
+    }
   }
 
   function getMedicinePayload(context) {
@@ -919,23 +962,27 @@ document.addEventListener("DOMContentLoaded", () => {
       row.appendChild(createCell(schedule.is_active ? "Active" : "Paused"));
 
       const actionsCell = document.createElement("td");
-      const toggleButton = document.createElement("button");
-      toggleButton.type = "button";
-      toggleButton.className = "table-action";
-      toggleButton.dataset.scheduleAction = "toggle";
-      toggleButton.dataset.id = String(schedule.id);
-      toggleButton.dataset.active = schedule.is_active ? "1" : "0";
-      toggleButton.textContent = schedule.is_active ? "Pause" : "Resume";
+      if (canWrite) {
+        const toggleButton = document.createElement("button");
+        toggleButton.type = "button";
+        toggleButton.className = "table-action";
+        toggleButton.dataset.scheduleAction = "toggle";
+        toggleButton.dataset.id = String(schedule.id);
+        toggleButton.dataset.active = schedule.is_active ? "1" : "0";
+        toggleButton.textContent = schedule.is_active ? "Pause" : "Resume";
 
-      const deleteButton = document.createElement("button");
-      deleteButton.type = "button";
-      deleteButton.className = "table-action schedule-delete-btn";
-      deleteButton.dataset.scheduleAction = "delete";
-      deleteButton.dataset.id = String(schedule.id);
-      deleteButton.textContent = "Delete";
+        const deleteButton = document.createElement("button");
+        deleteButton.type = "button";
+        deleteButton.className = "table-action schedule-delete-btn";
+        deleteButton.dataset.scheduleAction = "delete";
+        deleteButton.dataset.id = String(schedule.id);
+        deleteButton.textContent = "Delete";
 
-      actionsCell.appendChild(toggleButton);
-      actionsCell.appendChild(deleteButton);
+        actionsCell.appendChild(toggleButton);
+        actionsCell.appendChild(deleteButton);
+      } else {
+        actionsCell.textContent = "Read only";
+      }
       row.appendChild(actionsCell);
       schedulesBody.appendChild(row);
     });
@@ -1348,6 +1395,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!modal || !editForm || !entry) {
       return;
     }
+    if (!canWrite) {
+      showStatus("Read-only access: editing is disabled for this workspace.", "error");
+      return;
+    }
 
     editId.value = String(entry.id);
     editDosageValue.value = entry.dosage_value || "20";
@@ -1403,6 +1454,11 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!dbReady) {
     clearEntriesTable("Database unavailable.");
     return;
+  }
+
+  applyReadOnlyMode();
+  if (!canWrite) {
+    showStatus("Read-only access enabled for this workspace.");
   }
 
   setupMedicineTabs(createMedicineContext);
@@ -1510,6 +1566,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   scheduleForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!canWrite) {
+      showStatus("Read-only access: schedule updates are disabled.", "error");
+      return;
+    }
 
     const payload = {
       medicine_id: Number(scheduleMedicineSelect?.value || 0),
@@ -1549,6 +1609,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   schedulesBody?.addEventListener("click", async (event) => {
+    if (!canWrite) {
+      return;
+    }
+
     const actionButton = event.target.closest("button[data-schedule-action]");
     if (!actionButton) {
       return;
@@ -1631,6 +1695,11 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   runRemindersButton?.addEventListener("click", async () => {
+    if (!canWrite) {
+      showStatus("Read-only access: reminder checks are disabled.", "error");
+      return;
+    }
+
     const button = runRemindersButton;
     if (button) {
       button.disabled = true;
@@ -1661,6 +1730,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   createForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!canWrite) {
+      showStatus("Read-only access: entry logging is disabled.", "error");
+      return;
+    }
 
     const medicinePayload = getMedicinePayload(createMedicineContext);
     const payload = {
@@ -1724,6 +1797,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   entriesBody?.addEventListener("click", (event) => {
+    if (!canWrite) {
+      return;
+    }
+
     const target = event.target.closest("button[data-action='edit']");
     if (!target) {
       return;
@@ -1741,6 +1818,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   editForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!canWrite) {
+      showStatus("Read-only access: editing is disabled.", "error");
+      return;
+    }
 
     const medicinePayload = getMedicinePayload(editMedicineContext);
     const payload = {
@@ -1783,6 +1864,11 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   deleteEntryButton?.addEventListener("click", async () => {
+    if (!canWrite) {
+      showStatus("Read-only access: deleting is disabled.", "error");
+      return;
+    }
+
     const id = Number(editId.value);
     if (!id) {
       showStatus("Missing entry ID for delete.", "error");

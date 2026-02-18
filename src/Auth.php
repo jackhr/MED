@@ -5,6 +5,7 @@ declare(strict_types=1);
 final class Auth
 {
     private const SESSION_KEY = 'medicine_log_auth';
+    private const WRITABLE_ROLES = ['owner', 'editor'];
 
     public static function startSession(): void
     {
@@ -20,15 +21,34 @@ final class Auth
         session_start();
     }
 
-    public static function login(int $userId, string $username, ?string $displayName = null): void
+    private static function normalizeRole(?string $role): string
+    {
+        $normalized = strtolower(trim((string) $role));
+        if (in_array($normalized, ['owner', 'editor', 'viewer'], true)) {
+            return $normalized;
+        }
+
+        return 'viewer';
+    }
+
+    public static function login(
+        int $userId,
+        string $username,
+        ?string $displayName = null,
+        int $workspaceId = 0,
+        ?string $workspaceRole = null
+    ): void
     {
         self::startSession();
         session_regenerate_id(true);
         $cleanDisplayName = trim((string) $displayName);
+        $role = self::normalizeRole($workspaceRole);
         $_SESSION[self::SESSION_KEY] = [
             'id' => $userId,
             'username' => trim($username),
             'display_name' => $cleanDisplayName !== '' ? $cleanDisplayName : null,
+            'workspace_id' => $workspaceId > 0 ? $workspaceId : null,
+            'workspace_role' => $role,
         ];
     }
 
@@ -47,10 +67,14 @@ final class Auth
         }
 
         $displayName = trim((string) ($user['display_name'] ?? ''));
+        $workspaceId = (int) ($user['workspace_id'] ?? 0);
+        $workspaceRole = self::normalizeRole((string) ($user['workspace_role'] ?? 'viewer'));
         $_SESSION[self::SESSION_KEY] = [
             'id' => $userId,
             'username' => trim($username),
             'display_name' => $displayName !== '' ? $displayName : null,
+            'workspace_id' => $workspaceId > 0 ? $workspaceId : null,
+            'workspace_role' => $workspaceRole,
         ];
     }
 
@@ -73,11 +97,15 @@ final class Auth
             return;
         }
 
+        $workspaceId = (int) ($user['workspace_id'] ?? 0);
+        $workspaceRole = self::normalizeRole((string) ($user['workspace_role'] ?? 'viewer'));
         $cleanDisplayName = trim((string) $displayName);
         $_SESSION[self::SESSION_KEY] = [
             'id' => $userId,
             'username' => $username,
             'display_name' => $cleanDisplayName !== '' ? $cleanDisplayName : null,
+            'workspace_id' => $workspaceId > 0 ? $workspaceId : null,
+            'workspace_role' => $workspaceRole,
         ];
     }
 
@@ -92,8 +120,13 @@ final class Auth
 
         $userId = (int) ($user['id'] ?? 0);
         $username = trim((string) ($user['username'] ?? ''));
+        $workspaceId = (int) ($user['workspace_id'] ?? 0);
+        $workspaceRole = self::normalizeRole((string) ($user['workspace_role'] ?? 'viewer'));
 
-        return $userId > 0 && $username !== '';
+        return $userId > 0
+            && $username !== ''
+            && $workspaceId > 0
+            && in_array($workspaceRole, ['owner', 'editor', 'viewer'], true);
     }
 
     public static function userId(): ?int
@@ -140,6 +173,42 @@ final class Auth
         }
 
         return self::username();
+    }
+
+    public static function workspaceId(): ?int
+    {
+        if (!self::isAuthenticated()) {
+            return null;
+        }
+
+        $user = $_SESSION[self::SESSION_KEY] ?? null;
+        $workspaceId = (int) (($user['workspace_id'] ?? 0));
+
+        return $workspaceId > 0 ? $workspaceId : null;
+    }
+
+    public static function workspaceRole(): ?string
+    {
+        if (!self::isAuthenticated()) {
+            return null;
+        }
+
+        $user = $_SESSION[self::SESSION_KEY] ?? null;
+        $workspaceRole = self::normalizeRole((string) ($user['workspace_role'] ?? 'viewer'));
+
+        return in_array($workspaceRole, ['owner', 'editor', 'viewer'], true)
+            ? $workspaceRole
+            : null;
+    }
+
+    public static function canWrite(): bool
+    {
+        $role = self::workspaceRole();
+        if ($role === null) {
+            return false;
+        }
+
+        return in_array($role, self::WRITABLE_ROLES, true);
     }
 
     public static function requireAuthForPage(string $loginPath = 'login.php'): void

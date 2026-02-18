@@ -37,9 +37,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         try {
             $statement = $pdo->prepare(
-                'SELECT id, username, display_name, password_hash, is_active
-                 FROM app_users
-                 WHERE username = :username
+                'SELECT u.id,
+                        u.username,
+                        u.display_name,
+                        u.password_hash,
+                        u.is_active,
+                        wu.workspace_id,
+                        wu.role AS workspace_role
+                 FROM app_users u
+                 INNER JOIN workspace_users wu
+                    ON wu.user_id = u.id
+                    AND wu.is_active = 1
+                 WHERE u.username = :username
+                   AND u.is_active = 1
+                 ORDER BY CASE wu.role
+                            WHEN \'owner\' THEN 1
+                            WHEN \'editor\' THEN 2
+                            ELSE 3
+                          END ASC,
+                          wu.workspace_id ASC
                  LIMIT 1'
             );
             $statement->execute([':username' => $username]);
@@ -55,7 +71,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 Auth::login(
                     (int) $user['id'],
                     (string) $user['username'],
-                    isset($user['display_name']) ? (string) $user['display_name'] : null
+                    isset($user['display_name']) ? (string) $user['display_name'] : null,
+                    (int) ($user['workspace_id'] ?? 0),
+                    isset($user['workspace_role']) ? (string) $user['workspace_role'] : null
                 );
 
                 $updateStatement = $pdo->prepare('UPDATE app_users SET last_login_at = NOW() WHERE id = :id');
@@ -65,7 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
             }
         } catch (Throwable $exception) {
-            $error = 'Unable to authenticate. Ensure the user table migration has been applied.';
+            $error = 'Unable to authenticate. Ensure workspace and user migrations have been applied.';
         }
     }
 }

@@ -162,6 +162,22 @@ function envFlag(string $key, bool $default = false): bool
     return $default;
 }
 
+function normalizeWorkspaceRole(?string $role): string
+{
+    $normalized = strtolower(trim((string) $role));
+    if (in_array($normalized, ['owner', 'editor', 'viewer'], true)) {
+        return $normalized;
+    }
+
+    return 'viewer';
+}
+
+function workspaceCanWrite(?string $role): bool
+{
+    $normalizedRole = normalizeWorkspaceRole($role);
+    return in_array($normalizedRole, ['owner', 'editor'], true);
+}
+
 function appLogEnabled(): bool
 {
     return envFlag('APP_LOG_ENABLED', true);
@@ -300,7 +316,7 @@ function normalizeIntakePayload(array $payload): array
     ];
 }
 
-function resolveMedicineId(PDO $pdo, array &$data, array &$errors): ?int
+function resolveMedicineId(PDO $pdo, int $workspaceId, array &$data, array &$errors): ?int
 {
     $mode = $data['medicine_mode'] === 'new' ? 'new' : 'existing';
 
@@ -310,8 +326,17 @@ function resolveMedicineId(PDO $pdo, array &$data, array &$errors): ?int
             return null;
         }
 
-        $statement = $pdo->prepare('SELECT id, name FROM medicines WHERE id = :id LIMIT 1');
-        $statement->execute([':id' => $data['medicine_id']]);
+        $statement = $pdo->prepare(
+            'SELECT id, name
+             FROM medicines
+             WHERE id = :id
+               AND workspace_id = :workspace_id
+             LIMIT 1'
+        );
+        $statement->execute([
+            ':id' => $data['medicine_id'],
+            ':workspace_id' => $workspaceId,
+        ]);
         $medicine = $statement->fetch();
 
         if (!is_array($medicine)) {
@@ -333,8 +358,17 @@ function resolveMedicineId(PDO $pdo, array &$data, array &$errors): ?int
         return null;
     }
 
-    $existingStatement = $pdo->prepare('SELECT id, name FROM medicines WHERE name = :name LIMIT 1');
-    $existingStatement->execute([':name' => $data['medicine_name']]);
+    $existingStatement = $pdo->prepare(
+        'SELECT id, name
+         FROM medicines
+         WHERE workspace_id = :workspace_id
+           AND name = :name
+         LIMIT 1'
+    );
+    $existingStatement->execute([
+        ':workspace_id' => $workspaceId,
+        ':name' => $data['medicine_name'],
+    ]);
     $existingMedicine = $existingStatement->fetch();
     if (is_array($existingMedicine)) {
         $data['medicine_name'] = (string) $existingMedicine['name'];
@@ -342,12 +376,27 @@ function resolveMedicineId(PDO $pdo, array &$data, array &$errors): ?int
     }
 
     try {
-        $insertStatement = $pdo->prepare('INSERT INTO medicines (name) VALUES (:name)');
-        $insertStatement->execute([':name' => $data['medicine_name']]);
+        $insertStatement = $pdo->prepare(
+            'INSERT INTO medicines (workspace_id, name)
+             VALUES (:workspace_id, :name)'
+        );
+        $insertStatement->execute([
+            ':workspace_id' => $workspaceId,
+            ':name' => $data['medicine_name'],
+        ]);
         return (int) $pdo->lastInsertId();
     } catch (Throwable $exception) {
-        $retryStatement = $pdo->prepare('SELECT id, name FROM medicines WHERE name = :name LIMIT 1');
-        $retryStatement->execute([':name' => $data['medicine_name']]);
+        $retryStatement = $pdo->prepare(
+            'SELECT id, name
+             FROM medicines
+             WHERE workspace_id = :workspace_id
+               AND name = :name
+             LIMIT 1'
+        );
+        $retryStatement->execute([
+            ':workspace_id' => $workspaceId,
+            ':name' => $data['medicine_name'],
+        ]);
         $retryMedicine = $retryStatement->fetch();
 
         if (!is_array($retryMedicine)) {
@@ -360,7 +409,7 @@ function resolveMedicineId(PDO $pdo, array &$data, array &$errors): ?int
     }
 }
 
-function validateIntake(array $payload, PDO $pdo, array $allowedDosageUnits): array
+function validateIntake(array $payload, PDO $pdo, int $workspaceId, array $allowedDosageUnits): array
 {
     $data = normalizeIntakePayload($payload);
     $errors = [];
@@ -430,7 +479,7 @@ function validateIntake(array $payload, PDO $pdo, array $allowedDosageUnits): ar
     }
 
     if ($errors === []) {
-        $medicineId = resolveMedicineId($pdo, $data, $errors);
+        $medicineId = resolveMedicineId($pdo, $workspaceId, $data, $errors);
     }
 
     return [
@@ -477,7 +526,7 @@ function serializeEntry(array $entry): array
     ];
 }
 
-function findEntry(PDO $pdo, int $id): ?array
+function findEntry(PDO $pdo, int $workspaceId, int $id): ?array
 {
     $statement = $pdo->prepare(
         'SELECT l.id,
@@ -493,11 +542,16 @@ function findEntry(PDO $pdo, int $id): ?array
                 l.created_at
          FROM medicine_intake_logs l
          INNER JOIN medicines m ON m.id = l.medicine_id
+                              AND m.workspace_id = l.workspace_id
          LEFT JOIN app_users u ON u.id = l.logged_by_user_id
          WHERE l.id = :id
+           AND l.workspace_id = :workspace_id
          LIMIT 1'
     );
-    $statement->execute([':id' => $id]);
+    $statement->execute([
+        ':id' => $id,
+        ':workspace_id' => $workspaceId,
+    ]);
     $entry = $statement->fetch();
 
     return is_array($entry) ? $entry : null;
@@ -552,10 +606,12 @@ function normalizeEntryFilters(array $filters): array
     ];
 }
 
-function buildEntriesWhereSql(array $normalizedFilters): array
+function buildEntriesWhereSql(array $normalizedFilters, int $workspaceId): array
 {
-    $whereParts = [];
-    $bindings = [];
+    $whereParts = ['l.workspace_id = :workspace_id'];
+    $bindings = [
+        ':workspace_id' => $workspaceId,
+    ];
 
     if ($normalizedFilters['search'] !== '') {
         $whereParts[] = '(m.name LIKE :search OR COALESCE(l.notes, "") LIKE :search)';
@@ -614,24 +670,32 @@ function filteredEntriesQuerySql(string $whereSql, string $suffixSql = ''): stri
                    l.created_at
             FROM medicine_intake_logs l
             INNER JOIN medicines m ON m.id = l.medicine_id
+                                 AND m.workspace_id = l.workspace_id
             LEFT JOIN app_users u ON u.id = l.logged_by_user_id'
         . $whereSql
         . ' '
         . trim($suffixSql);
 }
 
-function loadEntriesPage(PDO $pdo, int $page, int $perPage, array $filters): array
+function loadEntriesPage(PDO $pdo, int $workspaceId, int $page, int $perPage, array $filters): array
 {
     $normalizedFilters = normalizeEntryFilters($filters);
-    $whereData = buildEntriesWhereSql($normalizedFilters);
+    $whereData = buildEntriesWhereSql($normalizedFilters, $workspaceId);
     $whereSql = $whereData['where_sql'];
     $bindings = $whereData['bindings'];
-    $totalAllEntries = (int) $pdo->query('SELECT COUNT(*) FROM medicine_intake_logs')->fetchColumn();
+    $totalAllEntriesStatement = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM medicine_intake_logs
+         WHERE workspace_id = :workspace_id'
+    );
+    $totalAllEntriesStatement->execute([':workspace_id' => $workspaceId]);
+    $totalAllEntries = (int) $totalAllEntriesStatement->fetchColumn();
 
     $countStatement = $pdo->prepare(
         'SELECT COUNT(*)
          FROM medicine_intake_logs l
-         INNER JOIN medicines m ON m.id = l.medicine_id'
+         INNER JOIN medicines m ON m.id = l.medicine_id
+                              AND m.workspace_id = l.workspace_id'
         . $whereSql
     );
     bindSqlValues($countStatement, $bindings);
@@ -677,10 +741,10 @@ function loadEntriesPage(PDO $pdo, int $page, int $perPage, array $filters): arr
     ];
 }
 
-function fetchEntriesForExport(PDO $pdo, array $filters): array
+function fetchEntriesForExport(PDO $pdo, int $workspaceId, array $filters): array
 {
     $normalizedFilters = normalizeEntryFilters($filters);
-    $whereData = buildEntriesWhereSql($normalizedFilters);
+    $whereData = buildEntriesWhereSql($normalizedFilters, $workspaceId);
     $whereSql = $whereData['where_sql'];
     $bindings = $whereData['bindings'];
 
@@ -699,9 +763,9 @@ function fetchEntriesForExport(PDO $pdo, array $filters): array
     ];
 }
 
-function downloadEntriesCsv(PDO $pdo, array $filters): void
+function downloadEntriesCsv(PDO $pdo, int $workspaceId, array $filters): void
 {
-    $exportData = fetchEntriesForExport($pdo, $filters);
+    $exportData = fetchEntriesForExport($pdo, $workspaceId, $filters);
     $entries = $exportData['entries'];
     $filtersData = $exportData['filters'];
     $filtersActive = $filtersData['search'] !== ''
@@ -771,21 +835,39 @@ function sqlBackupValue(mixed $value): string
     return "'" . str_replace("'", "''", (string) $value) . "'";
 }
 
-function downloadBackupJson(PDO $pdo): void
+function downloadBackupJson(PDO $pdo, int $workspaceId): void
 {
-    $medicines = $pdo
-        ->query('SELECT id, name, created_at FROM medicines ORDER BY id ASC')
-        ->fetchAll();
-    $intakes = $pdo
-        ->query(
-            'SELECT id, medicine_id, logged_by_user_id, dosage_value, dosage_unit, rating, taken_at, notes, created_at
-             FROM medicine_intake_logs
-             ORDER BY id ASC'
-        )
-        ->fetchAll();
+    $workspaceIdSql = max(1, $workspaceId);
+    $medicinesStatement = $pdo->prepare(
+        'SELECT id, workspace_id, name, created_at
+         FROM medicines
+         WHERE workspace_id = :workspace_id
+         ORDER BY id ASC'
+    );
+    $medicinesStatement->execute([':workspace_id' => $workspaceIdSql]);
+    $medicines = $medicinesStatement->fetchAll();
+
+    $intakesStatement = $pdo->prepare(
+        'SELECT id,
+                workspace_id,
+                medicine_id,
+                logged_by_user_id,
+                dosage_value,
+                dosage_unit,
+                rating,
+                taken_at,
+                notes,
+                created_at
+         FROM medicine_intake_logs
+         WHERE workspace_id = :workspace_id
+         ORDER BY id ASC'
+    );
+    $intakesStatement->execute([':workspace_id' => $workspaceIdSql]);
+    $intakes = $intakesStatement->fetchAll();
 
     $payload = [
         'generated_at' => date('c'),
+        'workspace_id' => $workspaceIdSql,
         'tables' => [
             'medicines' => is_array($medicines) ? $medicines : [],
             'medicine_intake_logs' => is_array($intakes) ? $intakes : [],
@@ -808,38 +890,57 @@ function downloadBackupJson(PDO $pdo): void
     echo $json;
 }
 
-function downloadBackupSql(PDO $pdo): void
+function downloadBackupSql(PDO $pdo, int $workspaceId): void
 {
-    $medicines = $pdo
-        ->query('SELECT id, name, created_at FROM medicines ORDER BY id ASC')
-        ->fetchAll();
-    $intakes = $pdo
-        ->query(
-            'SELECT id, medicine_id, logged_by_user_id, dosage_value, dosage_unit, rating, taken_at, notes, created_at
-             FROM medicine_intake_logs
-             ORDER BY id ASC'
-        )
-        ->fetchAll();
+    $workspaceIdSql = max(1, $workspaceId);
+    $medicinesStatement = $pdo->prepare(
+        'SELECT id, workspace_id, name, created_at
+         FROM medicines
+         WHERE workspace_id = :workspace_id
+         ORDER BY id ASC'
+    );
+    $medicinesStatement->execute([':workspace_id' => $workspaceIdSql]);
+    $medicines = $medicinesStatement->fetchAll();
+
+    $intakesStatement = $pdo->prepare(
+        'SELECT id,
+                workspace_id,
+                medicine_id,
+                logged_by_user_id,
+                dosage_value,
+                dosage_unit,
+                rating,
+                taken_at,
+                notes,
+                created_at
+         FROM medicine_intake_logs
+         WHERE workspace_id = :workspace_id
+         ORDER BY id ASC'
+    );
+    $intakesStatement->execute([':workspace_id' => $workspaceIdSql]);
+    $intakes = $intakesStatement->fetchAll();
 
     $lines = [];
     $lines[] = '-- Medicine Log backup generated at ' . date('c');
+    $lines[] = '-- Workspace ID: ' . $workspaceIdSql;
     $lines[] = 'SET FOREIGN_KEY_CHECKS=0;';
-    $lines[] = 'DELETE FROM medicine_intake_logs;';
-    $lines[] = 'DELETE FROM medicines;';
+    $lines[] = 'DELETE FROM medicine_intake_logs WHERE workspace_id = ' . $workspaceIdSql . ';';
+    $lines[] = 'DELETE FROM medicines WHERE workspace_id = ' . $workspaceIdSql . ';';
     $lines[] = '';
 
     if (is_array($medicines) && $medicines !== []) {
         $medicineValues = [];
         foreach ($medicines as $row) {
             $medicineValues[] = sprintf(
-                '(%s, %s, %s)',
+                '(%s, %s, %s, %s)',
                 sqlBackupValue($row['id'] ?? null),
+                sqlBackupValue($row['workspace_id'] ?? null),
                 sqlBackupValue($row['name'] ?? null),
                 sqlBackupValue($row['created_at'] ?? null)
             );
         }
 
-        $lines[] = 'INSERT INTO medicines (id, name, created_at) VALUES';
+        $lines[] = 'INSERT INTO medicines (id, workspace_id, name, created_at) VALUES';
         $lines[] = implode(",\n", $medicineValues) . ';';
         $lines[] = '';
     }
@@ -848,8 +949,9 @@ function downloadBackupSql(PDO $pdo): void
         $intakeValues = [];
         foreach ($intakes as $row) {
             $intakeValues[] = sprintf(
-                '(%s, %s, %s, %s, %s, %s, %s, %s, %s)',
+                '(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
                 sqlBackupValue($row['id'] ?? null),
+                sqlBackupValue($row['workspace_id'] ?? null),
                 sqlBackupValue($row['medicine_id'] ?? null),
                 sqlBackupValue($row['logged_by_user_id'] ?? null),
                 sqlBackupValue($row['dosage_value'] ?? null),
@@ -861,7 +963,7 @@ function downloadBackupSql(PDO $pdo): void
             );
         }
 
-        $lines[] = 'INSERT INTO medicine_intake_logs (id, medicine_id, logged_by_user_id, dosage_value, dosage_unit, rating, taken_at, notes, created_at) VALUES';
+        $lines[] = 'INSERT INTO medicine_intake_logs (id, workspace_id, medicine_id, logged_by_user_id, dosage_value, dosage_unit, rating, taken_at, notes, created_at) VALUES';
         $lines[] = implode(",\n", $intakeValues) . ';';
         $lines[] = '';
     }
@@ -876,17 +978,36 @@ function downloadBackupSql(PDO $pdo): void
     echo implode("\n", $lines);
 }
 
-function loadMetrics(PDO $pdo): array
+function loadMetrics(PDO $pdo, int $workspaceId): array
 {
-    $entriesToday = (int) $pdo
-        ->query('SELECT COUNT(*) FROM medicine_intake_logs WHERE DATE(taken_at) = CURDATE()')
-        ->fetchColumn();
-    $entriesThisWeek = (int) $pdo
-        ->query('SELECT COUNT(*) FROM medicine_intake_logs WHERE YEARWEEK(taken_at, 1) = YEARWEEK(CURDATE(), 1)')
-        ->fetchColumn();
-    $avgRatingThisWeekRaw = $pdo
-        ->query('SELECT AVG(rating) FROM medicine_intake_logs WHERE YEARWEEK(taken_at, 1) = YEARWEEK(CURDATE(), 1)')
-        ->fetchColumn();
+    $workspaceIdSql = max(1, $workspaceId);
+
+    $entriesTodayStatement = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM medicine_intake_logs
+         WHERE workspace_id = :workspace_id
+           AND DATE(taken_at) = CURDATE()'
+    );
+    $entriesTodayStatement->execute([':workspace_id' => $workspaceIdSql]);
+    $entriesToday = (int) $entriesTodayStatement->fetchColumn();
+
+    $entriesThisWeekStatement = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM medicine_intake_logs
+         WHERE workspace_id = :workspace_id
+           AND YEARWEEK(taken_at, 1) = YEARWEEK(CURDATE(), 1)'
+    );
+    $entriesThisWeekStatement->execute([':workspace_id' => $workspaceIdSql]);
+    $entriesThisWeek = (int) $entriesThisWeekStatement->fetchColumn();
+
+    $avgRatingThisWeekStatement = $pdo->prepare(
+        'SELECT AVG(rating)
+         FROM medicine_intake_logs
+         WHERE workspace_id = :workspace_id
+           AND YEARWEEK(taken_at, 1) = YEARWEEK(CURDATE(), 1)'
+    );
+    $avgRatingThisWeekStatement->execute([':workspace_id' => $workspaceIdSql]);
+    $avgRatingThisWeekRaw = $avgRatingThisWeekStatement->fetchColumn();
     $avgRatingThisWeek = $avgRatingThisWeekRaw !== null ? round((float) $avgRatingThisWeekRaw, 2) : null;
 
     return [
@@ -896,15 +1017,18 @@ function loadMetrics(PDO $pdo): array
     ];
 }
 
-function loadTrends(PDO $pdo): array
+function loadTrends(PDO $pdo, int $workspaceId): array
 {
+    $workspaceIdSql = max(1, $workspaceId);
+
     $summaryStatement = $pdo->query(
         'SELECT SUM(CASE WHEN taken_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) THEN 1 ELSE 0 END) AS entries_last_30_days,
                 COUNT(DISTINCT CASE WHEN taken_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) THEN DATE(taken_at) END) AS active_days_last_30_days,
                 AVG(CASE WHEN YEARWEEK(taken_at, 1) = YEARWEEK(CURDATE(), 1) THEN rating END) AS avg_rating_this_week,
                 AVG(CASE WHEN taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY) THEN rating END) AS avg_rating_last_90_days
          FROM medicine_intake_logs
-         WHERE taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)'
+         WHERE workspace_id = ' . $workspaceIdSql . '
+           AND taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)'
     );
     $summaryRow = $summaryStatement->fetch();
     $entriesLast30Days = (int) ($summaryRow['entries_last_30_days'] ?? 0);
@@ -921,7 +1045,8 @@ function loadTrends(PDO $pdo): array
                 AVG(rating) AS avg_rating,
                 COUNT(*) AS entries
          FROM medicine_intake_logs
-         WHERE taken_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+         WHERE workspace_id = ' . $workspaceIdSql . '
+           AND taken_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
          GROUP BY YEAR(taken_at), MONTH(taken_at)
          ORDER BY MIN(taken_at)'
     );
@@ -942,7 +1067,8 @@ function loadTrends(PDO $pdo): array
                 COUNT(*) AS entries,
                 AVG(rating) AS avg_rating
          FROM medicine_intake_logs
-         WHERE taken_at >= DATE_SUB(CURDATE(), INTERVAL 12 WEEK)
+         WHERE workspace_id = ' . $workspaceIdSql . '
+           AND taken_at >= DATE_SUB(CURDATE(), INTERVAL 12 WEEK)
          GROUP BY YEARWEEK(taken_at, 1)
          ORDER BY YEARWEEK(taken_at, 1)'
     );
@@ -966,7 +1092,9 @@ function loadTrends(PDO $pdo): array
                 AVG(l.rating) AS avg_rating
          FROM medicine_intake_logs l
          INNER JOIN medicines m ON m.id = l.medicine_id
-         WHERE l.taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+         WHERE l.workspace_id = ' . $workspaceIdSql . '
+           AND m.workspace_id = ' . $workspaceIdSql . '
+           AND l.taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
          GROUP BY l.medicine_id, m.name
          ORDER BY entries DESC, m.name ASC
          LIMIT 5'
@@ -988,7 +1116,8 @@ function loadTrends(PDO $pdo): array
                 COUNT(*) AS entries,
                 AVG(rating) AS avg_rating
          FROM medicine_intake_logs
-         WHERE taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+         WHERE workspace_id = ' . $workspaceIdSql . '
+           AND taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
          GROUP BY WEEKDAY(taken_at)
          ORDER BY WEEKDAY(taken_at)'
     );
@@ -1017,7 +1146,8 @@ function loadTrends(PDO $pdo): array
                                    (
                                        SELECT l2.taken_at
                                        FROM medicine_intake_logs l2
-                                       WHERE DATE(l2.taken_at) = DATE(l1.taken_at)
+                                       WHERE l2.workspace_id = l1.workspace_id
+                                         AND DATE(l2.taken_at) = DATE(l1.taken_at)
                                          AND (
                                              l2.taken_at < l1.taken_at
                                              OR (l2.taken_at = l1.taken_at AND l2.id < l1.id)
@@ -1028,7 +1158,8 @@ function loadTrends(PDO $pdo): array
                                    l1.taken_at
                                ) AS interval_minutes
                         FROM medicine_intake_logs l1
-                        WHERE l1.taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)';
+                        WHERE l1.workspace_id = ' . $workspaceIdSql . '
+                          AND l1.taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)';
 
     $doseIntervalSummaryStatement = $pdo->query(
         'SELECT AVG(
@@ -1219,12 +1350,14 @@ function loadTrends(PDO $pdo): array
                       FROM medicine_intake_logs l1
                       INNER JOIN medicine_intake_logs l2
                           ON DATE(l2.taken_at) = DATE(l1.taken_at)
+                          AND l2.workspace_id = l1.workspace_id
                           AND l2.taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
                           AND (
                               l2.taken_at < l1.taken_at
                               OR (l2.taken_at = l1.taken_at AND l2.id <= l1.id)
                           )
-                      WHERE l1.taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+                      WHERE l1.workspace_id = ' . $workspaceIdSql . '
+                        AND l1.taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
                       GROUP BY l1.id, l1.taken_at, l1.medicine_id';
 
     $doseWeekdayStatement = $pdo->query(
@@ -1246,6 +1379,7 @@ function loadTrends(PDO $pdo): array
                 COUNT(*) AS samples
          FROM (' . $rankedDoseSql . ') ranked
          INNER JOIN medicines m ON m.id = ranked.medicine_id
+                               AND m.workspace_id = ' . $workspaceIdSql . '
          GROUP BY ranked.dose_order, ranked.medicine_id, m.name, WEEKDAY(ranked.taken_at)
          ORDER BY ranked.dose_order, ranked.medicine_id, WEEKDAY(ranked.taken_at)'
     );
@@ -1257,6 +1391,7 @@ function loadTrends(PDO $pdo): array
                 COUNT(*) AS samples
          FROM (' . $rankedDoseSql . ') ranked
          INNER JOIN medicine_intake_logs l ON l.id = ranked.id
+                                     AND l.workspace_id = ' . $workspaceIdSql . '
          GROUP BY ranked.dose_order, l.dosage_unit
          ORDER BY ranked.dose_order, l.dosage_unit'
     );
@@ -1270,7 +1405,9 @@ function loadTrends(PDO $pdo): array
                 COUNT(*) AS samples
          FROM (' . $rankedDoseSql . ') ranked
          INNER JOIN medicine_intake_logs l ON l.id = ranked.id
+                                     AND l.workspace_id = ' . $workspaceIdSql . '
          INNER JOIN medicines m ON m.id = ranked.medicine_id
+                               AND m.workspace_id = ' . $workspaceIdSql . '
          GROUP BY ranked.dose_order, ranked.medicine_id, m.name, l.dosage_unit
          ORDER BY ranked.dose_order, ranked.medicine_id, l.dosage_unit'
     );
@@ -1444,7 +1581,7 @@ function parseCalendarMonth(string $monthInput): DateTimeImmutable
     return new DateTimeImmutable('first day of this month 00:00:00');
 }
 
-function loadCalendarMonth(PDO $pdo, string $monthInput): array
+function loadCalendarMonth(PDO $pdo, int $workspaceId, string $monthInput): array
 {
     $monthStart = parseCalendarMonth($monthInput);
     $monthEnd = $monthStart->modify('+1 month');
@@ -1463,12 +1600,15 @@ function loadCalendarMonth(PDO $pdo, string $monthInput): array
                 l.created_at
          FROM medicine_intake_logs l
          INNER JOIN medicines m ON m.id = l.medicine_id
+                              AND m.workspace_id = l.workspace_id
          LEFT JOIN app_users u ON u.id = l.logged_by_user_id
-         WHERE l.taken_at >= :start_date
+         WHERE l.workspace_id = :workspace_id
+           AND l.taken_at >= :start_date
            AND l.taken_at < :end_date
          ORDER BY l.taken_at ASC, l.id ASC'
     );
     $statement->execute([
+        ':workspace_id' => $workspaceId,
         ':start_date' => $monthStart->format('Y-m-d H:i:s'),
         ':end_date' => $monthEnd->format('Y-m-d H:i:s'),
     ]);
@@ -1523,13 +1663,15 @@ function loadCalendarMonth(PDO $pdo, string $monthInput): array
     ];
 }
 
-function loadMedicineOptions(PDO $pdo): array
+function loadMedicineOptions(PDO $pdo, int $workspaceId): array
 {
-    $statement = $pdo->query(
+    $statement = $pdo->prepare(
         'SELECT id, name
          FROM medicines
+         WHERE workspace_id = :workspace_id
          ORDER BY name ASC'
     );
+    $statement->execute([':workspace_id' => $workspaceId]);
     $rows = $statement->fetchAll();
 
     return array_values(array_map(
@@ -1597,7 +1739,7 @@ function normalizeSchedulePayload(array $payload): array
     ];
 }
 
-function validateSchedulePayload(array $payload, PDO $pdo, array $allowedDosageUnits): array
+function validateSchedulePayload(array $payload, PDO $pdo, int $workspaceId, array $allowedDosageUnits): array
 {
     $data = normalizeSchedulePayload($payload);
     $errors = [];
@@ -1606,8 +1748,17 @@ function validateSchedulePayload(array $payload, PDO $pdo, array $allowedDosageU
     if ($data['medicine_id'] <= 0) {
         $errors[] = 'Please choose a medicine for this schedule.';
     } else {
-        $statement = $pdo->prepare('SELECT id, name FROM medicines WHERE id = :id LIMIT 1');
-        $statement->execute([':id' => $data['medicine_id']]);
+        $statement = $pdo->prepare(
+            'SELECT id, name
+             FROM medicines
+             WHERE id = :id
+               AND workspace_id = :workspace_id
+             LIMIT 1'
+        );
+        $statement->execute([
+            ':id' => $data['medicine_id'],
+            ':workspace_id' => $workspaceId,
+        ]);
         $medicine = $statement->fetch();
         if (!is_array($medicine)) {
             $errors[] = 'The selected medicine does not exist.';
@@ -1679,7 +1830,7 @@ function serializeSchedule(array $row): array
     ];
 }
 
-function loadDoseSchedules(PDO $pdo, int $userId): array
+function loadDoseSchedules(PDO $pdo, int $workspaceId, int $userId): array
 {
     $statement = $pdo->prepare(
         'SELECT s.id,
@@ -1695,16 +1846,21 @@ function loadDoseSchedules(PDO $pdo, int $userId): array
                 s.updated_at
          FROM dose_schedules s
          INNER JOIN medicines m ON m.id = s.medicine_id
-         WHERE s.user_id = :user_id
+                              AND m.workspace_id = s.workspace_id
+         WHERE s.workspace_id = :workspace_id
+           AND s.user_id = :user_id
          ORDER BY s.time_of_day ASC, m.name ASC, s.id ASC'
     );
-    $statement->execute([':user_id' => $userId]);
+    $statement->execute([
+        ':workspace_id' => $workspaceId,
+        ':user_id' => $userId,
+    ]);
     $rows = $statement->fetchAll();
 
     return array_values(array_map(static fn(array $row): array => serializeSchedule($row), $rows));
 }
 
-function savePushSubscription(PDO $pdo, int $userId, array $payload): array
+function savePushSubscription(PDO $pdo, int $workspaceId, int $userId, array $payload): array
 {
     $endpoint = trim((string) ($payload['endpoint'] ?? ''));
     $keys = is_array($payload['keys'] ?? null) ? $payload['keys'] : [];
@@ -1722,9 +1878,10 @@ function savePushSubscription(PDO $pdo, int $userId, array $payload): array
     $endpointHash = hash('sha256', $endpoint);
 
     $statement = $pdo->prepare(
-        'INSERT INTO push_subscriptions (user_id, endpoint, endpoint_hash, p256dh, auth_key, user_agent, is_active, last_seen_at)
-         VALUES (:user_id, :endpoint, :endpoint_hash, :p256dh, :auth_key, :user_agent, 1, NOW())
+        'INSERT INTO push_subscriptions (workspace_id, user_id, endpoint, endpoint_hash, p256dh, auth_key, user_agent, is_active, last_seen_at)
+         VALUES (:workspace_id, :user_id, :endpoint, :endpoint_hash, :p256dh, :auth_key, :user_agent, 1, NOW())
          ON DUPLICATE KEY UPDATE
+            workspace_id = VALUES(workspace_id),
             user_id = VALUES(user_id),
             endpoint = VALUES(endpoint),
             p256dh = VALUES(p256dh),
@@ -1734,6 +1891,7 @@ function savePushSubscription(PDO $pdo, int $userId, array $payload): array
             last_seen_at = NOW()'
     );
     $statement->execute([
+        ':workspace_id' => $workspaceId,
         ':user_id' => $userId,
         ':endpoint' => $endpoint,
         ':endpoint_hash' => $endpointHash,
@@ -1748,7 +1906,7 @@ function savePushSubscription(PDO $pdo, int $userId, array $payload): array
     ];
 }
 
-function removePushSubscription(PDO $pdo, int $userId, array $payload): void
+function removePushSubscription(PDO $pdo, int $workspaceId, int $userId, array $payload): void
 {
     $endpoint = trim((string) ($payload['endpoint'] ?? ''));
     if ($endpoint === '') {
@@ -1758,32 +1916,38 @@ function removePushSubscription(PDO $pdo, int $userId, array $payload): void
     $statement = $pdo->prepare(
         'UPDATE push_subscriptions
          SET is_active = 0, updated_at = CURRENT_TIMESTAMP
-         WHERE user_id = :user_id
+         WHERE workspace_id = :workspace_id
+           AND user_id = :user_id
            AND endpoint_hash = :endpoint_hash'
     );
     $statement->execute([
+        ':workspace_id' => $workspaceId,
         ':user_id' => $userId,
         ':endpoint_hash' => hash('sha256', $endpoint),
     ]);
 }
 
-function activePushSubscriptions(PDO $pdo, int $userId): array
+function activePushSubscriptions(PDO $pdo, int $workspaceId, int $userId): array
 {
     $statement = $pdo->prepare(
         'SELECT id, endpoint, endpoint_hash
          FROM push_subscriptions
-         WHERE user_id = :user_id
+         WHERE workspace_id = :workspace_id
+           AND user_id = :user_id
            AND is_active = 1'
     );
-    $statement->execute([':user_id' => $userId]);
+    $statement->execute([
+        ':workspace_id' => $workspaceId,
+        ':user_id' => $userId,
+    ]);
     $rows = $statement->fetchAll();
 
     return is_array($rows) ? $rows : [];
 }
 
-function dispatchPushForUser(PDO $pdo, int $userId, string $source = 'manual', array $context = []): array
+function dispatchPushForUser(PDO $pdo, int $workspaceId, int $userId, string $source = 'manual', array $context = []): array
 {
-    $subscriptions = activePushSubscriptions($pdo, $userId);
+    $subscriptions = activePushSubscriptions($pdo, $workspaceId, $userId);
     $attempted = count($subscriptions);
     $sent = 0;
     $failed = 0;
@@ -1793,6 +1957,7 @@ function dispatchPushForUser(PDO $pdo, int $userId, string $source = 'manual', a
 
     $baseContext = array_merge([
         'source' => $source,
+        'workspace_id' => $workspaceId,
         'user_id' => $userId,
     ], $context);
 
@@ -1838,9 +2003,13 @@ function dispatchPushForUser(PDO $pdo, int $userId, string $source = 'manual', a
             $deactivateStatement = $pdo->prepare(
                 'UPDATE push_subscriptions
                  SET is_active = 0, updated_at = CURRENT_TIMESTAMP
-                 WHERE id = :id'
+                 WHERE id = :id
+                   AND workspace_id = :workspace_id'
             );
-            $deactivateStatement->execute([':id' => (int) ($subscription['id'] ?? 0)]);
+            $deactivateStatement->execute([
+                ':id' => (int) ($subscription['id'] ?? 0),
+                ':workspace_id' => $workspaceId,
+            ]);
             $deactivated += 1;
             logEvent('warning', 'push.subscription.deactivated', array_merge($baseContext, [
                 'subscription_id' => (int) ($subscription['id'] ?? 0),
@@ -1871,7 +2040,7 @@ function dispatchPushForUser(PDO $pdo, int $userId, string $source = 'manual', a
     return $summary;
 }
 
-function processDueReminders(PDO $pdo, ?int $userId = null, array $sourceContext = []): array
+function processDueReminders(PDO $pdo, ?int $workspaceId = null, ?int $userId = null, array $sourceContext = []): array
 {
     $timezoneName = Env::get('APP_TIMEZONE', 'UTC') ?? 'UTC';
     $timezone = new DateTimeZone($timezoneName);
@@ -1886,6 +2055,7 @@ function processDueReminders(PDO $pdo, ?int $userId = null, array $sourceContext
     }
 
     $query = 'SELECT s.id,
+                     s.workspace_id,
                      s.user_id,
                      s.medicine_id,
                      m.name AS medicine_name,
@@ -1896,8 +2066,14 @@ function processDueReminders(PDO $pdo, ?int $userId = null, array $sourceContext
                      s.is_active
               FROM dose_schedules s
               INNER JOIN medicines m ON m.id = s.medicine_id
+                                   AND m.workspace_id = s.workspace_id
               WHERE s.is_active = 1';
     $params = [];
+
+    if ($workspaceId !== null && $workspaceId > 0) {
+        $query .= ' AND s.workspace_id = :workspace_id';
+        $params[':workspace_id'] = $workspaceId;
+    }
 
     if ($userId !== null) {
         $query .= ' AND s.user_id = :user_id';
@@ -1919,6 +2095,7 @@ function processDueReminders(PDO $pdo, ?int $userId = null, array $sourceContext
     $failureCount = 0;
 
     logEvent('info', 'reminders.process.started', array_merge($sourceContext, [
+        'workspace_scope' => $workspaceId,
         'user_scope' => $userId,
         'window_minutes' => $windowMinutes,
         'grace_seconds' => $graceSeconds,
@@ -1974,11 +2151,17 @@ function processDueReminders(PDO $pdo, ?int $userId = null, array $sourceContext
             continue;
         }
 
-        $dispatchResult = dispatchPushForUser($pdo, (int) $schedule['user_id'], 'schedule', [
+        $dispatchResult = dispatchPushForUser(
+            $pdo,
+            (int) ($schedule['workspace_id'] ?? 0),
+            (int) $schedule['user_id'],
+            'schedule',
+            [
             'schedule_id' => (int) ($schedule['id'] ?? 0),
             'scheduled_for' => $scheduledForDb,
             'medicine_id' => (int) ($schedule['medicine_id'] ?? 0),
-        ]);
+            ]
+        );
         $sent += (int) ($dispatchResult['sent'] ?? 0);
         $pushAttempted += (int) ($dispatchResult['attempted'] ?? 0);
         $pushFailed += (int) ($dispatchResult['failed'] ?? 0);
@@ -2042,7 +2225,7 @@ function processDueReminders(PDO $pdo, ?int $userId = null, array $sourceContext
     return $result;
 }
 
-function loadLatestPushNotificationForUser(PDO $pdo, int $userId): array
+function loadLatestPushNotificationForUser(PDO $pdo, int $workspaceId, int $userId): array
 {
     $defaultNotification = [
         'title' => 'Medicine reminder',
@@ -2061,12 +2244,14 @@ function loadLatestPushNotificationForUser(PDO $pdo, int $userId): array
                 s.reminder_message
          FROM reminder_dispatches d
          INNER JOIN dose_schedules s ON s.id = d.schedule_id
-         WHERE s.user_id = :user_id
+         WHERE s.workspace_id = :workspace_id
+           AND s.user_id = :user_id
            AND d.scheduled_for >= :threshold
          ORDER BY d.scheduled_for DESC, d.id DESC
          LIMIT 1'
     );
     $statement->execute([
+        ':workspace_id' => $workspaceId,
         ':user_id' => $userId,
         ':threshold' => $threshold,
     ]);
@@ -2102,8 +2287,43 @@ if ($apiAction !== '') {
         exit;
     }
 
+    $currentUserId = null;
+    $currentWorkspaceId = null;
+    $currentWorkspaceRole = null;
+
     try {
         $currentUserId = Auth::userId();
+        $currentWorkspaceId = Auth::workspaceId();
+        $currentWorkspaceRole = normalizeWorkspaceRole(Auth::workspaceRole());
+
+        if ($apiAction !== 'process_reminders' && $currentWorkspaceId === null) {
+            jsonResponse([
+                'ok' => false,
+                'error' => 'No active workspace is assigned to this session.',
+            ], 403);
+            exit;
+        }
+
+        $writeApiActions = [
+            'schedule_create',
+            'schedule_update',
+            'schedule_toggle',
+            'schedule_delete',
+            'create',
+            'update',
+            'delete',
+        ];
+        if (
+            $_SERVER['REQUEST_METHOD'] === 'POST'
+            && in_array($apiAction, $writeApiActions, true)
+            && !workspaceCanWrite($currentWorkspaceRole)
+        ) {
+            jsonResponse([
+                'ok' => false,
+                'error' => 'Read-only access. This action requires editor permissions.',
+            ], 403);
+            exit;
+        }
 
         if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'account') {
             if ($currentUserId === null) {
@@ -2126,6 +2346,11 @@ if ($apiAction !== '') {
             jsonResponse([
                 'ok' => true,
                 'account' => $account,
+                'workspace' => [
+                    'id' => $currentWorkspaceId,
+                    'role' => $currentWorkspaceRole,
+                    'can_write' => workspaceCanWrite($currentWorkspaceRole),
+                ],
             ]);
             exit;
         }
@@ -2318,6 +2543,11 @@ if ($apiAction !== '') {
                     'ok' => true,
                     'message' => 'No account changes were needed.',
                     'account' => $account,
+                    'workspace' => [
+                        'id' => $currentWorkspaceId,
+                        'role' => $currentWorkspaceRole,
+                        'can_write' => workspaceCanWrite($currentWorkspaceRole),
+                    ],
                 ]);
                 exit;
             }
@@ -2357,6 +2587,11 @@ if ($apiAction !== '') {
                 'ok' => true,
                 'message' => 'Updated: ' . implode(' and ', $changeSummary) . '.',
                 'account' => $account,
+                'workspace' => [
+                    'id' => $currentWorkspaceId,
+                    'role' => $currentWorkspaceRole,
+                    'can_write' => workspaceCanWrite($currentWorkspaceRole),
+                ],
             ]);
             exit;
         }
@@ -2364,7 +2599,11 @@ if ($apiAction !== '') {
         if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'dashboard') {
             jsonResponse([
                 'ok' => true,
-                'metrics' => loadMetrics($pdo),
+                'metrics' => loadMetrics($pdo, $currentWorkspaceId),
+                'access' => [
+                    'role' => $currentWorkspaceRole,
+                    'can_write' => workspaceCanWrite($currentWorkspaceRole),
+                ],
             ]);
             exit;
         }
@@ -2372,7 +2611,7 @@ if ($apiAction !== '') {
         if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'trends') {
             jsonResponse([
                 'ok' => true,
-                'trends' => loadTrends($pdo),
+                'trends' => loadTrends($pdo, $currentWorkspaceId),
             ]);
             exit;
         }
@@ -2381,7 +2620,7 @@ if ($apiAction !== '') {
             $monthInput = (string) ($_GET['month'] ?? '');
             jsonResponse([
                 'ok' => true,
-                'calendar' => loadCalendarMonth($pdo, $monthInput),
+                'calendar' => loadCalendarMonth($pdo, $currentWorkspaceId, $monthInput),
             ]);
             exit;
         }
@@ -2389,7 +2628,7 @@ if ($apiAction !== '') {
         if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'medicines') {
             jsonResponse([
                 'ok' => true,
-                'medicines' => loadMedicineOptions($pdo),
+                'medicines' => loadMedicineOptions($pdo, $currentWorkspaceId),
             ]);
             exit;
         }
@@ -2405,7 +2644,11 @@ if ($apiAction !== '') {
 
             jsonResponse([
                 'ok' => true,
-                'schedules' => loadDoseSchedules($pdo, $currentUserId),
+                'schedules' => loadDoseSchedules($pdo, $currentWorkspaceId, $currentUserId),
+                'access' => [
+                    'role' => $currentWorkspaceRole,
+                    'can_write' => workspaceCanWrite($currentWorkspaceRole),
+                ],
             ]);
             exit;
         }
@@ -2419,13 +2662,17 @@ if ($apiAction !== '') {
                 'from_date' => (string) ($_GET['from_date'] ?? ''),
                 'to_date' => (string) ($_GET['to_date'] ?? ''),
             ];
-            $entriesPage = loadEntriesPage($pdo, $page, $perPage, $entriesFilters);
+            $entriesPage = loadEntriesPage($pdo, $currentWorkspaceId, $page, $perPage, $entriesFilters);
 
             jsonResponse([
                 'ok' => true,
                 'entries' => $entriesPage['entries'],
                 'pagination' => $entriesPage['pagination'],
                 'filters' => $entriesPage['filters'],
+                'access' => [
+                    'role' => $currentWorkspaceRole,
+                    'can_write' => workspaceCanWrite($currentWorkspaceRole),
+                ],
             ]);
             exit;
         }
@@ -2438,17 +2685,17 @@ if ($apiAction !== '') {
                 'from_date' => (string) ($_GET['from_date'] ?? ''),
                 'to_date' => (string) ($_GET['to_date'] ?? ''),
             ];
-            downloadEntriesCsv($pdo, $exportFilters);
+            downloadEntriesCsv($pdo, $currentWorkspaceId, $exportFilters);
             exit;
         }
 
         if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'backup_json') {
-            downloadBackupJson($pdo);
+            downloadBackupJson($pdo, $currentWorkspaceId);
             exit;
         }
 
         if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'backup_sql') {
-            downloadBackupSql($pdo);
+            downloadBackupSql($pdo, $currentWorkspaceId);
             exit;
         }
 
@@ -2463,7 +2710,7 @@ if ($apiAction !== '') {
 
             jsonResponse([
                 'ok' => true,
-                'notification' => loadLatestPushNotificationForUser($pdo, $currentUserId),
+                'notification' => loadLatestPushNotificationForUser($pdo, $currentWorkspaceId, $currentUserId),
             ]);
             exit;
         }
@@ -2484,6 +2731,8 @@ if ($apiAction !== '') {
                 'remote_ip' => requestIp(),
                 'user_agent' => substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 220),
                 'auth_mode' => $isCronAuthorized ? 'cron_token' : 'session',
+                'workspace_id' => $currentWorkspaceId,
+                'workspace_role' => $currentWorkspaceRole,
                 'user_id' => $currentUserId,
             ];
 
@@ -2496,9 +2745,19 @@ if ($apiAction !== '') {
                 exit;
             }
 
+            if (!$isCronAuthorized && !workspaceCanWrite($currentWorkspaceRole)) {
+                logEvent('warning', 'reminders.process.forbidden', $requestContext);
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Read-only access. Reminder processing requires editor permissions.',
+                ], 403);
+                exit;
+            }
+
             logEvent('info', 'reminders.process.requested', $requestContext);
             $result = processDueReminders(
                 $pdo,
+                $isCronAuthorized ? null : $currentWorkspaceId,
                 $isCronAuthorized ? null : $currentUserId,
                 $requestContext
             );
@@ -2519,7 +2778,7 @@ if ($apiAction !== '') {
             }
 
             $payload = requestPayload();
-            $validated = validateSchedulePayload($payload, $pdo, $allowedDosageUnits);
+            $validated = validateSchedulePayload($payload, $pdo, $currentWorkspaceId, $allowedDosageUnits);
             if ($validated['errors'] !== []) {
                 jsonResponse([
                     'ok' => false,
@@ -2531,10 +2790,11 @@ if ($apiAction !== '') {
 
             $data = $validated['data'];
             $statement = $pdo->prepare(
-                'INSERT INTO dose_schedules (user_id, medicine_id, dosage_value, dosage_unit, time_of_day, reminder_message, is_active)
-                 VALUES (:user_id, :medicine_id, :dosage_value, :dosage_unit, :time_of_day, :reminder_message, :is_active)'
+                'INSERT INTO dose_schedules (workspace_id, user_id, medicine_id, dosage_value, dosage_unit, time_of_day, reminder_message, is_active)
+                 VALUES (:workspace_id, :user_id, :medicine_id, :dosage_value, :dosage_unit, :time_of_day, :reminder_message, :is_active)'
             );
             $statement->execute([
+                ':workspace_id' => $currentWorkspaceId,
                 ':user_id' => $currentUserId,
                 ':medicine_id' => $data['medicine_id'],
                 ':dosage_value' => $validated['dosage_value_for_db'],
@@ -2574,11 +2834,13 @@ if ($apiAction !== '') {
                 'SELECT id
                  FROM dose_schedules
                  WHERE id = :id
+                   AND workspace_id = :workspace_id
                    AND user_id = :user_id
                  LIMIT 1'
             );
             $existsStatement->execute([
                 ':id' => $scheduleId,
+                ':workspace_id' => $currentWorkspaceId,
                 ':user_id' => $currentUserId,
             ]);
             if (!is_array($existsStatement->fetch())) {
@@ -2589,7 +2851,7 @@ if ($apiAction !== '') {
                 exit;
             }
 
-            $validated = validateSchedulePayload($payload, $pdo, $allowedDosageUnits);
+            $validated = validateSchedulePayload($payload, $pdo, $currentWorkspaceId, $allowedDosageUnits);
             if ($validated['errors'] !== []) {
                 jsonResponse([
                     'ok' => false,
@@ -2610,6 +2872,7 @@ if ($apiAction !== '') {
                      is_active = :is_active,
                      updated_at = CURRENT_TIMESTAMP
                  WHERE id = :id
+                   AND workspace_id = :workspace_id
                    AND user_id = :user_id'
             );
             $statement->execute([
@@ -2620,6 +2883,7 @@ if ($apiAction !== '') {
                 ':reminder_message' => $data['reminder_message'] !== '' ? $data['reminder_message'] : null,
                 ':is_active' => $data['is_active'] === 0 ? 0 : 1,
                 ':id' => $scheduleId,
+                ':workspace_id' => $currentWorkspaceId,
                 ':user_id' => $currentUserId,
             ]);
 
@@ -2653,11 +2917,14 @@ if ($apiAction !== '') {
             $statement = $pdo->prepare(
                 'UPDATE dose_schedules
                  SET is_active = :is_active, updated_at = CURRENT_TIMESTAMP
-                 WHERE id = :id AND user_id = :user_id'
+                 WHERE id = :id
+                   AND workspace_id = :workspace_id
+                   AND user_id = :user_id'
             );
             $statement->execute([
                 ':is_active' => $isActive,
                 ':id' => $scheduleId,
+                ':workspace_id' => $currentWorkspaceId,
                 ':user_id' => $currentUserId,
             ]);
 
@@ -2695,9 +2962,15 @@ if ($apiAction !== '') {
                 exit;
             }
 
-            $statement = $pdo->prepare('DELETE FROM dose_schedules WHERE id = :id AND user_id = :user_id');
+            $statement = $pdo->prepare(
+                'DELETE FROM dose_schedules
+                 WHERE id = :id
+                   AND workspace_id = :workspace_id
+                   AND user_id = :user_id'
+            );
             $statement->execute([
                 ':id' => $scheduleId,
+                ':workspace_id' => $currentWorkspaceId,
                 ':user_id' => $currentUserId,
             ]);
 
@@ -2726,7 +2999,7 @@ if ($apiAction !== '') {
             }
 
             $payload = requestPayload();
-            $saved = savePushSubscription($pdo, $currentUserId, $payload);
+            $saved = savePushSubscription($pdo, $currentWorkspaceId, $currentUserId, $payload);
             if (($saved['ok'] ?? false) !== true) {
                 jsonResponse([
                     'ok' => false,
@@ -2752,7 +3025,7 @@ if ($apiAction !== '') {
             }
 
             $payload = requestPayload();
-            removePushSubscription($pdo, $currentUserId, $payload);
+            removePushSubscription($pdo, $currentWorkspaceId, $currentUserId, $payload);
             jsonResponse([
                 'ok' => true,
                 'message' => 'Browser subscription removed.',
@@ -2769,7 +3042,7 @@ if ($apiAction !== '') {
                 exit;
             }
 
-            $dispatch = dispatchPushForUser($pdo, $currentUserId, 'push_test', [
+            $dispatch = dispatchPushForUser($pdo, $currentWorkspaceId, $currentUserId, 'push_test', [
                 'api' => 'push_test',
                 'remote_ip' => requestIp(),
             ]);
@@ -2782,7 +3055,7 @@ if ($apiAction !== '') {
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && $apiAction === 'create') {
             $payload = requestPayload();
-            $validated = validateIntake($payload, $pdo, $allowedDosageUnits);
+            $validated = validateIntake($payload, $pdo, $currentWorkspaceId, $allowedDosageUnits);
 
             if ($validated['errors'] !== []) {
                 jsonResponse([
@@ -2795,10 +3068,11 @@ if ($apiAction !== '') {
 
             $data = $validated['data'];
             $statement = $pdo->prepare(
-                'INSERT INTO medicine_intake_logs (medicine_id, logged_by_user_id, dosage_value, dosage_unit, rating, taken_at, notes)
-                 VALUES (:medicine_id, :logged_by_user_id, :dosage_value, :dosage_unit, :rating, :taken_at, :notes)'
+                'INSERT INTO medicine_intake_logs (workspace_id, medicine_id, logged_by_user_id, dosage_value, dosage_unit, rating, taken_at, notes)
+                 VALUES (:workspace_id, :medicine_id, :logged_by_user_id, :dosage_value, :dosage_unit, :rating, :taken_at, :notes)'
             );
             $statement->execute([
+                ':workspace_id' => $currentWorkspaceId,
                 ':medicine_id' => $validated['medicine_id'],
                 ':logged_by_user_id' => $currentUserId,
                 ':dosage_value' => $validated['dosage_value_for_db'],
@@ -2809,7 +3083,7 @@ if ($apiAction !== '') {
             ]);
 
             $entryId = (int) $pdo->lastInsertId();
-            $entry = findEntry($pdo, $entryId);
+            $entry = findEntry($pdo, $currentWorkspaceId, $entryId);
 
             jsonResponse([
                 'ok' => true,
@@ -2831,7 +3105,7 @@ if ($apiAction !== '') {
                 exit;
             }
 
-            $existingEntry = findEntry($pdo, $entryId);
+            $existingEntry = findEntry($pdo, $currentWorkspaceId, $entryId);
             if (!is_array($existingEntry)) {
                 jsonResponse([
                     'ok' => false,
@@ -2840,7 +3114,7 @@ if ($apiAction !== '') {
                 exit;
             }
 
-            $validated = validateIntake($payload, $pdo, $allowedDosageUnits);
+            $validated = validateIntake($payload, $pdo, $currentWorkspaceId, $allowedDosageUnits);
             if ($validated['errors'] !== []) {
                 jsonResponse([
                     'ok' => false,
@@ -2859,7 +3133,8 @@ if ($apiAction !== '') {
                      rating = :rating,
                      taken_at = :taken_at,
                      notes = :notes
-                 WHERE id = :id'
+                 WHERE id = :id
+                   AND workspace_id = :workspace_id'
             );
             $statement->execute([
                 ':medicine_id' => $validated['medicine_id'],
@@ -2869,9 +3144,10 @@ if ($apiAction !== '') {
                 ':taken_at' => $validated['taken_at_for_db'],
                 ':notes' => $data['notes'] !== '' ? $data['notes'] : null,
                 ':id' => $entryId,
+                ':workspace_id' => $currentWorkspaceId,
             ]);
 
-            $updatedEntry = findEntry($pdo, $entryId);
+            $updatedEntry = findEntry($pdo, $currentWorkspaceId, $entryId);
             jsonResponse([
                 'ok' => true,
                 'message' => 'Entry updated successfully.',
@@ -2892,7 +3168,7 @@ if ($apiAction !== '') {
                 exit;
             }
 
-            $existingEntry = findEntry($pdo, $entryId);
+            $existingEntry = findEntry($pdo, $currentWorkspaceId, $entryId);
             if (!is_array($existingEntry)) {
                 jsonResponse([
                     'ok' => false,
@@ -2901,8 +3177,15 @@ if ($apiAction !== '') {
                 exit;
             }
 
-            $statement = $pdo->prepare('DELETE FROM medicine_intake_logs WHERE id = :id');
-            $statement->execute([':id' => $entryId]);
+            $statement = $pdo->prepare(
+                'DELETE FROM medicine_intake_logs
+                 WHERE id = :id
+                   AND workspace_id = :workspace_id'
+            );
+            $statement->execute([
+                ':id' => $entryId,
+                ':workspace_id' => $currentWorkspaceId,
+            ]);
 
             jsonResponse([
                 'ok' => true,
@@ -2921,6 +3204,8 @@ if ($apiAction !== '') {
             'api' => $apiAction,
             'method' => (string) ($_SERVER['REQUEST_METHOD'] ?? 'UNKNOWN'),
             'remote_ip' => requestIp(),
+            'workspace_id' => $currentWorkspaceId ?? null,
+            'workspace_role' => $currentWorkspaceRole ?? null,
             'user_id' => $currentUserId ?? null,
             'message' => substr($exception->getMessage(), 0, 320),
         ]);
@@ -2934,6 +3219,8 @@ if ($apiAction !== '') {
 
 $dbReady = $pdo instanceof PDO;
 $signedInUsername = Auth::displayLabel() ?? '';
+$signedInWorkspaceRole = normalizeWorkspaceRole(Auth::workspaceRole());
+$canWriteWorkspaceData = workspaceCanWrite($signedInWorkspaceRole);
 ?>
 <!doctype html>
 <html lang="en">
@@ -2949,7 +3236,9 @@ $signedInUsername = Auth::displayLabel() ?? '';
             apiPath: <?= json_encode($selfPath, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
             perPage: <?= $perPage ?>,
             pushPublicKey: <?= json_encode(PushNotifications::publicKey(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
-            pushConfigured: <?= PushNotifications::isConfigured() ? 'true' : 'false' ?>
+            pushConfigured: <?= PushNotifications::isConfigured() ? 'true' : 'false' ?>,
+            workspaceRole: <?= json_encode($signedInWorkspaceRole, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
+            canWrite: <?= $canWriteWorkspaceData ? 'true' : 'false' ?>
         };
     </script>
     <script src="assets/nav.js" defer></script>
@@ -2984,6 +3273,7 @@ $signedInUsername = Auth::displayLabel() ?? '';
             <?php if ($signedInUsername !== ''): ?>
                 <p class="meta-text">Signed in as <strong><?= e($signedInUsername) ?></strong></p>
             <?php endif; ?>
+            <p class="meta-text">Workspace role: <strong><?= e(ucfirst($signedInWorkspaceRole)) ?></strong></p>
         </header>
 
         <?php if ($dbError !== null): ?>
