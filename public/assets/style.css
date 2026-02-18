@@ -968,7 +968,7 @@ textarea {
 table {
     width          : 100%;
     border-collapse: collapse;
-    min-width      : 680px;
+    min-width      : min(680px, 100%);
 }
 
 th,

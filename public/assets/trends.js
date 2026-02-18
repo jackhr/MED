@@ -284,6 +284,25 @@ document.addEventListener("DOMContentLoaded", () => {
     chartElement.innerHTML = `<p class="chart-empty">${escapeHtml(message)}</p>`;
   }
 
+  function chartDimensions(chartElement, fixedHeight = 280) {
+    const fallbackWidth = 700;
+    if (!chartElement) {
+      return {
+        width: fallbackWidth,
+        height: fixedHeight,
+      };
+    }
+
+    const rect = chartElement.getBoundingClientRect();
+    const measured = Math.round(rect.width || chartElement.clientWidth || 0);
+    const width = Math.max(280, measured > 0 ? measured : fallbackWidth);
+
+    return {
+      width,
+      height: fixedHeight,
+    };
+  }
+
   function renderLineChart(chartElement, points, options = {}) {
     if (!chartElement) {
       return;
@@ -295,8 +314,9 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const width = 700;
-    const height = 280;
+    const dimensions = chartDimensions(chartElement, 280);
+    const width = dimensions.width;
+    const height = dimensions.height;
     const padding = {
       top: 22,
       right: 16,
@@ -490,8 +510,9 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const width = 700;
-    const height = 280;
+    const dimensions = chartDimensions(chartElement, 280);
+    const width = dimensions.width;
+    const height = dimensions.height;
     const padding = {
       top: 22,
       right: 16,
@@ -1073,8 +1094,9 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const width = 700;
-    const height = 280;
+    const dimensions = chartDimensions(chartElement, 280);
+    const width = dimensions.width;
+    const height = dimensions.height;
     const padding = {
       top: 22,
       right: 16,
@@ -1979,4 +2001,19 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       clearAllCharts("Could not load charts.");
     });
+
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    if (!latestTrends) {
+      return;
+    }
+
+    if (resizeTimer) {
+      window.clearTimeout(resizeTimer);
+    }
+
+    resizeTimer = window.setTimeout(() => {
+      renderTrends(latestTrends);
+    }, 120);
+  });
 });
