@@ -292,6 +292,10 @@ body.modal-open {
     margin-bottom: 0.45rem;
 }
 
+.dose-order-controls[hidden] {
+    display: none !important;
+}
+
 .workspace-grid>*,
 .schedule-grid>*,
 .trends-grid>*,
@@ -569,6 +573,11 @@ body.modal-open {
 
 .chart-bar {
     fill: #0f887b;
+}
+
+.chart-dose-layer {
+    stroke      : rgba(9, 62, 56, 0.2);
+    stroke-width: 0.8;
 }
 
 .chart-reference-line {

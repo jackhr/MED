@@ -142,6 +142,7 @@ $dbReady = $pdo instanceof PDO;
             <article class="card trends-card-wide">
                 <h2>Dose Time Highlights</h2>
                 <p id="chart-dose-order-meta" class="meta-text">Select a dose order to see average time by weekday over the last 90 days.</p>
+                <div id="dose-view-controls" class="dose-order-controls" aria-label="Dose chart view selector"></div>
                 <div id="dose-order-controls" class="dose-order-controls" aria-label="Dose order selector"></div>
                 <div id="dose-medicine-controls" class="dose-order-controls" aria-label="Medicine selector" hidden></div>
                 <div id="chart-dose-order" class="chart-shell">

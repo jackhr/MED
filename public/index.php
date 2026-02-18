@@ -1141,7 +1141,33 @@ function loadTrends(PDO $pdo): array
          ORDER BY ranked.dose_order, ranked.medicine_id, WEEKDAY(ranked.taken_at)'
     );
     $medicineDoseWeekdayRows = $medicineDoseWeekdayStatement->fetchAll();
+    $doseDosageAverageStatement = $pdo->query(
+        'SELECT ranked.dose_order,
+                l.dosage_unit,
+                AVG(l.dosage_value) AS avg_dosage_value,
+                COUNT(*) AS samples
+         FROM (' . $rankedDoseSql . ') ranked
+         INNER JOIN medicine_intake_logs l ON l.id = ranked.id
+         GROUP BY ranked.dose_order, l.dosage_unit
+         ORDER BY ranked.dose_order, l.dosage_unit'
+    );
+    $doseDosageAverageRows = $doseDosageAverageStatement->fetchAll();
+    $medicineDoseDosageAverageStatement = $pdo->query(
+        'SELECT ranked.dose_order,
+                ranked.medicine_id,
+                m.name AS medicine_name,
+                l.dosage_unit,
+                AVG(l.dosage_value) AS avg_dosage_value,
+                COUNT(*) AS samples
+         FROM (' . $rankedDoseSql . ') ranked
+         INNER JOIN medicine_intake_logs l ON l.id = ranked.id
+         INNER JOIN medicines m ON m.id = ranked.medicine_id
+         GROUP BY ranked.dose_order, ranked.medicine_id, m.name, l.dosage_unit
+         ORDER BY ranked.dose_order, ranked.medicine_id, l.dosage_unit'
+    );
+    $medicineDoseDosageAverageRows = $medicineDoseDosageAverageStatement->fetchAll();
     $doseWeekdayPatterns = [];
+    $doseDosageAverages = [];
     $availableDoseOrdersMap = [];
     $availableMedicinesMap = [];
 
@@ -1197,6 +1223,53 @@ function loadTrends(PDO $pdo): array
         ];
     }
 
+    foreach ($doseDosageAverageRows as $row) {
+        $doseOrder = (int) ($row['dose_order'] ?? 0);
+        $dosageUnit = trim((string) ($row['dosage_unit'] ?? ''));
+        if ($doseOrder <= 0 || $dosageUnit === '') {
+            continue;
+        }
+
+        $doseDosageAverages[] = [
+            'dose_order' => $doseOrder,
+            'dose_label' => ordinal($doseOrder),
+            'medicine_id' => null,
+            'medicine_name' => 'All medicines',
+            'dosage_unit' => $dosageUnit,
+            'avg_dosage_value' => isset($row['avg_dosage_value']) && $row['avg_dosage_value'] !== null
+                ? round((float) $row['avg_dosage_value'], 2)
+                : null,
+            'samples' => (int) ($row['samples'] ?? 0),
+        ];
+    }
+
+    foreach ($medicineDoseDosageAverageRows as $row) {
+        $doseOrder = (int) ($row['dose_order'] ?? 0);
+        $medicineId = (int) ($row['medicine_id'] ?? 0);
+        $medicineName = trim((string) ($row['medicine_name'] ?? ''));
+        $dosageUnit = trim((string) ($row['dosage_unit'] ?? ''));
+        if (
+            $doseOrder <= 0
+            || $medicineId <= 0
+            || $medicineName === ''
+            || $dosageUnit === ''
+        ) {
+            continue;
+        }
+
+        $doseDosageAverages[] = [
+            'dose_order' => $doseOrder,
+            'dose_label' => ordinal($doseOrder),
+            'medicine_id' => $medicineId,
+            'medicine_name' => $medicineName,
+            'dosage_unit' => $dosageUnit,
+            'avg_dosage_value' => isset($row['avg_dosage_value']) && $row['avg_dosage_value'] !== null
+                ? round((float) $row['avg_dosage_value'], 2)
+                : null,
+            'samples' => (int) ($row['samples'] ?? 0),
+        ];
+    }
+
     $availableDoseOrders = array_map(
         static fn(string|int $value): int => (int) $value,
         array_keys($availableDoseOrdersMap)
@@ -1237,6 +1310,7 @@ function loadTrends(PDO $pdo): array
             'available_orders' => $availableDoseOrders,
             'available_medicines' => $availableMedicines,
             'rows' => $doseWeekdayPatterns,
+            'dosage_averages' => $doseDosageAverages,
         ],
     ];
 }
