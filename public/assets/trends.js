@@ -43,6 +43,28 @@ document.addEventListener("DOMContentLoaded", () => {
   let selectedDoseView = "single";
   let selectedDoseOrder = null;
   let selectedDoseMedicine = "all";
+  const DOSE_WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+  function toMondayFirstWeekdayIndex(dateLike) {
+    const date = dateLike instanceof Date ? dateLike : new Date();
+    const sundayFirstIndex = date.getDay();
+    return (sundayFirstIndex + 6) % 7;
+  }
+
+  function buildRollingDoseWeekdaySlots() {
+    const todayWeekdayIndex = toMondayFirstWeekdayIndex(new Date());
+    const slots = [];
+
+    for (let offset = 6; offset >= 0; offset -= 1) {
+      const weekdayIndex = (todayWeekdayIndex - offset + 7) % 7;
+      slots.push({
+        weekday_index: weekdayIndex,
+        weekday_label: DOSE_WEEKDAY_LABELS[weekdayIndex],
+      });
+    }
+
+    return slots;
+  }
 
   function buildApiUrl(action) {
     const url = new URL(apiPath, window.location.href);
@@ -702,7 +724,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function buildDoseWeekdaySeries(rows, doseOrder, selectedMedicine) {
-    const weekdayOrder = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const rollingWeekdaySlots = buildRollingDoseWeekdaySlots();
     const rowsByWeekday = new Map();
     const normalizedMedicine = normalizeDoseMedicine(selectedMedicine);
     const targetMedicine =
@@ -732,7 +754,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const samplesRaw = Number(row.samples);
       rowsByWeekday.set(weekdayIndex, {
         weekday_index: weekdayIndex,
-        weekday_label: weekdayOrder[weekdayIndex],
+        weekday_label: DOSE_WEEKDAY_LABELS[weekdayIndex],
         avg_minute_of_day: Number.isFinite(averageMinute) ? averageMinute : null,
         samples:
           Number.isFinite(samplesRaw) && samplesRaw > 0
@@ -741,14 +763,14 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
 
-    return weekdayOrder.map((weekdayLabel, weekdayIndex) => {
-      if (rowsByWeekday.has(weekdayIndex)) {
-        return rowsByWeekday.get(weekdayIndex);
+    return rollingWeekdaySlots.map((slot) => {
+      if (rowsByWeekday.has(slot.weekday_index)) {
+        return rowsByWeekday.get(slot.weekday_index);
       }
 
       return {
-        weekday_index: weekdayIndex,
-        weekday_label: weekdayLabel,
+        weekday_index: slot.weekday_index,
+        weekday_label: slot.weekday_label,
         avg_minute_of_day: null,
         samples: 0,
       };
@@ -830,7 +852,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function buildDoseWeekdayCombinedSeries(rows, availableOrders, selectedMedicine) {
-    const weekdayOrder = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const rollingWeekdaySlots = buildRollingDoseWeekdaySlots();
     const validOrders = new Set(
       (Array.isArray(availableOrders) ? availableOrders : [])
         .map((order) => normalizeDoseOrder(order))
@@ -879,8 +901,8 @@ document.addEventListener("DOMContentLoaded", () => {
       rowsByWeekday.get(weekdayIndex).set(rowDoseOrder, normalizedRow);
     });
 
-    return weekdayOrder.map((weekdayLabel, weekdayIndex) => {
-      const doseRows = rowsByWeekday.get(weekdayIndex) || new Map();
+    return rollingWeekdaySlots.map((slot) => {
+      const doseRows = rowsByWeekday.get(slot.weekday_index) || new Map();
       const doses = (Array.isArray(availableOrders) ? availableOrders : []).map(
         (doseOrder) => {
           const normalizedDoseOrder = normalizeDoseOrder(doseOrder);
@@ -899,8 +921,8 @@ document.addEventListener("DOMContentLoaded", () => {
       );
 
       return {
-        weekday_index: weekdayIndex,
-        weekday_label: weekdayLabel,
+        weekday_index: slot.weekday_index,
+        weekday_label: slot.weekday_label,
         doses,
       };
     });
