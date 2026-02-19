@@ -1846,8 +1846,26 @@ document.addEventListener("DOMContentLoaded", () => {
           : Number.NaN,
     }));
 
+    const rollingValues = chartPoints
+      .map((point) => point.value)
+      .filter((value) => Number.isFinite(value));
+    const hasRollingValues = rollingValues.length > 0;
+    const rollingMin = hasRollingValues ? Math.min(...rollingValues) : null;
+    const rollingMax = hasRollingValues ? Math.max(...rollingValues) : null;
+    const rollingRange =
+      rollingMin !== null && rollingMax !== null ? rollingMax - rollingMin : 0;
+    const rollingPadding =
+      rollingMin !== null && rollingMax !== null
+        ? Math.max(0.15, rollingRange > 0 ? rollingRange * 0.12 : rollingMax * 0.12)
+        : 0;
+    const yMin =
+      rollingMin !== null ? Math.max(0, rollingMin - rollingPadding) : 0;
+    const yMax =
+      rollingMax !== null ? rollingMax + rollingPadding : undefined;
+
     renderLineChart(chartDoseIntervalRolling, chartPoints, {
-      yMin: 0,
+      yMin,
+      ...(Number.isFinite(yMax) ? { yMax } : {}),
       ariaLabel: "Rolling 7-day average time between doses",
       tickFormatter: (value) => formatMinutesAsDuration(value * 60, true),
       valueFormatter: (value) => formatMinutesAsDuration(value * 60),
