@@ -19,6 +19,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const createDosageUnit = document.getElementById("dosage_unit");
   const createRatingWidget = document.getElementById("create-rating-widget");
   const createRating = document.getElementById("rating");
+  const createModal = document.getElementById("create-modal");
+  const openCreateModalButton = document.getElementById("open-create-modal-btn");
 
   const entriesBody = document.getElementById("entries-body");
   const tableMeta = document.getElementById("table-meta");
@@ -1413,7 +1415,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     modal.hidden = false;
-    body.classList.add("modal-open");
+    syncModalOpenState();
   }
 
   function closeEditModal() {
@@ -1422,7 +1424,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     modal.hidden = true;
-    body.classList.remove("modal-open");
+    syncModalOpenState();
     editForm.reset();
     if (editDosageValue) {
       editDosageValue.value = "20";
@@ -1434,6 +1436,65 @@ document.addEventListener("DOMContentLoaded", () => {
       setRating(editRating, editRatingWidget, 3);
     }
     syncMedicineContext(editMedicineContext);
+  }
+
+  function syncModalOpenState() {
+    const isEditModalOpen = Boolean(modal && !modal.hidden);
+    const isCreateModalOpen = Boolean(createModal && !createModal.hidden);
+    body.classList.toggle("modal-open", isEditModalOpen || isCreateModalOpen);
+  }
+
+  function openCreateModal() {
+    if (!canWrite) {
+      showStatus("Read-only access: entry logging is disabled.", "error");
+      return;
+    }
+    if (!createModal) {
+      return;
+    }
+
+    createModal.hidden = false;
+    syncModalOpenState();
+    if (createTakenAt && !createTakenAt.value) {
+      createTakenAt.value = localDateTimeInputValue();
+    }
+  }
+
+  function closeCreateModal(resetForm = false) {
+    if (!createModal) {
+      return;
+    }
+
+    createModal.hidden = true;
+    syncModalOpenState();
+
+    if (!resetForm || !createForm) {
+      return;
+    }
+
+    createForm.reset();
+    if (createTakenAt) {
+      createTakenAt.value = localDateTimeInputValue();
+    }
+    if (createDosageValue) {
+      createDosageValue.value = "20";
+    }
+    if (createDosageUnit) {
+      createDosageUnit.value = "mg";
+    }
+    if (createRating) {
+      setRating(createRating, createRatingWidget, 3);
+    }
+    if (mostRecentMedicine && mostRecentMedicine.id > 0) {
+      syncMedicineContext(createMedicineContext, mostRecentMedicine);
+      setMedicinePickerMode(createMedicineContext, "existing");
+    } else {
+      syncMedicineContext(createMedicineContext);
+      setMedicinePickerMode(
+        createMedicineContext,
+        medicines.length > 0 ? "existing" : "new"
+      );
+    }
   }
 
   function validateRequiredFields(payload) {
@@ -1561,6 +1622,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   backupSqlButton?.addEventListener("click", () => {
     triggerDownload("backup_sql");
+  });
+
+  openCreateModalButton?.addEventListener("click", () => {
+    openCreateModal();
   });
 
   scheduleForm?.addEventListener("submit", async (event) => {
@@ -1785,6 +1850,7 @@ document.addEventListener("DOMContentLoaded", () => {
           medicines.length > 0 ? "existing" : "new"
         );
       }
+      closeCreateModal();
     } catch (error) {
       showStatus(error.message, "error");
     } finally {
@@ -1924,8 +1990,24 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  createModal?.addEventListener("click", (event) => {
+    const closeButton = event.target.closest("[data-close-create-modal='true']");
+    if (closeButton) {
+      closeCreateModal(true);
+    }
+  });
+
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && modal && !modal.hidden) {
+    if (event.key !== "Escape") {
+      return;
+    }
+
+    if (createModal && !createModal.hidden) {
+      closeCreateModal(true);
+      return;
+    }
+
+    if (modal && !modal.hidden) {
       closeEditModal();
     }
   });
