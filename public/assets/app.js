@@ -602,7 +602,7 @@ document.addEventListener("DOMContentLoaded", () => {
         row.appendChild(
           createCell(entry.rating_display || entry.rating || "-", "rating-cell")
         );
-        row.appendChild(createCell(entry.notes || ""));
+        row.appendChild(createCell(entry.notes || "", "notes-cell"));
 
         if (canWrite) {
           const actionsCell = document.createElement("td");

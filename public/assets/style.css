@@ -314,6 +314,11 @@ body.modal-open {
     gap                  : 0.8rem;
 }
 
+.calendar-controls-side {
+    display: grid;
+    gap    : 0.5rem;
+}
+
 .calendar-nav {
     display        : flex;
     align-items    : center;
@@ -991,6 +996,15 @@ th {
     letter-spacing: 0.04em;
 }
 
+th:first-child {
+    white-space: nowrap;
+}
+
+.notes-column,
+.notes-cell {
+    min-width: 200px;
+}
+
 .day-group-row td {
     background : #eef7f5;
     color      : #2c5550;
@@ -1008,16 +1022,16 @@ th {
     color       : #244c47;
     font-weight : 600;
     position    : relative;
+    white-space : nowrap;
 }
 
 .entry-row.is-nested .nested-time::before {
-    content   : "";
-    position  : absolute;
-    left      : 0.6rem;
-    top       : 50%;
-    width     : 0.45rem;
-    border-top: 2px solid #9abdb6;
-    transform : translateY(-50%);
+    content  : "";
+    position : absolute;
+    left     : 0.6rem;
+    top      : 50%;
+    width    : 0.45rem;
+    transform: translateY(-50%);
 }
 
 .rating-cell {

@@ -3415,7 +3415,7 @@ $entryTableColumnCount = $canWriteWorkspaceData ? 7 : 6;
                                 <th>Logged By</th>
                                 <th>Dosage</th>
                                 <th>Rating</th>
-                                <th>Notes</th>
+                                <th class="notes-column">Notes</th>
                                 <?php if ($canWriteWorkspaceData): ?>
                                     <th>Actions</th>
                                 <?php endif; ?>
