@@ -260,7 +260,7 @@ body.modal-open {
     align-items          : start;
 }
 
-.workspace-grid > :only-child {
+.workspace-grid> :only-child {
     grid-column: 1 / -1;
 }
 
@@ -557,7 +557,7 @@ body.modal-open {
 
 .chart-axis-label {
     fill       : #5a6f6a;
-    font-size  : 12px;
+    font-size  : 10.8px;
     font-family: "Trebuchet MS", "Verdana", "Geneva", sans-serif;
 }
 
