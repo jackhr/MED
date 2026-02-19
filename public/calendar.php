@@ -36,15 +36,15 @@ $canWriteWorkspaceData = Auth::canWrite();
     <title>Medicine Intake Calendar</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="shortcut icon" href="favicon.svg">
-    <link rel="stylesheet" href="assets/style.css">
+    <link rel="stylesheet" href="assets/min/style.css">
     <script>
         window.MEDICINE_CALENDAR_CONFIG = {
             apiPath: "index.php",
             initialMonth: <?= json_encode($initialMonth, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>
         };
     </script>
-    <script src="assets/nav.js" defer></script>
-    <script src="assets/calendar.js" defer></script>
+    <script src="assets/min/nav.js" defer></script>
+    <script src="assets/min/calendar.js" defer></script>
 </head>
 <body data-db-ready="<?= $dbReady ? '1' : '0' ?>">
     <main class="dashboard calendar-dashboard">

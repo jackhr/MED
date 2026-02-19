@@ -101,7 +101,7 @@ function e(string $value): string
     <title>Medicine Tracker Login</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="shortcut icon" href="favicon.svg">
-    <link rel="stylesheet" href="assets/style.css">
+    <link rel="stylesheet" href="assets/min/style.css">
 </head>
 <body>
     <main class="auth-shell">

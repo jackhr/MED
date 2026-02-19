@@ -23,7 +23,7 @@ if (!Auth::canWrite()) {
         <title>Schedules Unavailable</title>
         <link rel="icon" href="favicon.svg" type="image/svg+xml">
         <link rel="shortcut icon" href="favicon.svg">
-        <link rel="stylesheet" href="assets/style.css">
+        <link rel="stylesheet" href="assets/min/style.css">
     </head>
     <body>
         <main class="dashboard">
@@ -65,7 +65,7 @@ $canWriteWorkspaceData = Auth::canWrite();
     <title>Medicine Dose Schedules</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="shortcut icon" href="favicon.svg">
-    <link rel="stylesheet" href="assets/style.css">
+    <link rel="stylesheet" href="assets/min/style.css">
     <script>
         window.MEDICINE_SCHEDULES_CONFIG = {
             apiPath: "index.php",
@@ -75,8 +75,8 @@ $canWriteWorkspaceData = Auth::canWrite();
             canWrite: <?= $canWriteWorkspaceData ? 'true' : 'false' ?>
         };
     </script>
-    <script src="assets/nav.js" defer></script>
-    <script src="assets/schedules.js" defer></script>
+    <script src="assets/min/nav.js" defer></script>
+    <script src="assets/min/schedules.js" defer></script>
 </head>
 <body data-db-ready="<?= $dbReady ? '1' : '0' ?>">
     <main class="dashboard schedules-dashboard">

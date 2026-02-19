@@ -3240,7 +3240,7 @@ $entryTableColumnCount = $canWriteWorkspaceData ? 7 : 6;
     <title>Medicine Intake Dashboard</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="shortcut icon" href="favicon.svg">
-    <link rel="stylesheet" href="assets/style.css">
+    <link rel="stylesheet" href="assets/min/style.css">
     <script>
         window.MEDICINE_LOG_CONFIG = {
             apiPath: <?= json_encode($selfPath, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>,
@@ -3251,8 +3251,8 @@ $entryTableColumnCount = $canWriteWorkspaceData ? 7 : 6;
             canWrite: <?= $canWriteWorkspaceData ? 'true' : 'false' ?>
         };
     </script>
-    <script src="assets/nav.js" defer></script>
-    <script src="assets/app.js" defer></script>
+    <script src="assets/min/nav.js" defer></script>
+    <script src="assets/min/app.js" defer></script>
 </head>
 <body data-db-ready="<?= $dbReady ? '1' : '0' ?>">
     <main class="dashboard">

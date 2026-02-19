@@ -36,14 +36,14 @@ $canWriteWorkspaceData = Auth::canWrite();
     <title>Medicine Tracker Settings</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="shortcut icon" href="favicon.svg">
-    <link rel="stylesheet" href="assets/style.css">
+    <link rel="stylesheet" href="assets/min/style.css">
     <script>
         window.MEDICINE_SETTINGS_CONFIG = {
             apiPath: "index.php"
         };
     </script>
-    <script src="assets/nav.js" defer></script>
-    <script src="assets/settings.js" defer></script>
+    <script src="assets/min/nav.js" defer></script>
+    <script src="assets/min/settings.js" defer></script>
 </head>
 <body data-db-ready="<?= $dbReady ? '1' : '0' ?>">
     <main class="dashboard settings-dashboard">
