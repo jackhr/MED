@@ -251,15 +251,6 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/'/g, "&#39;");
   }
 
-  function shortenLabel(value, maxLength = 12) {
-    const text = String(value);
-    if (text.length <= maxLength) {
-      return text;
-    }
-
-    return `${text.slice(0, maxLength - 1)}...`;
-  }
-
   function clearTable(bodyElement, message, colSpan = 3) {
     if (!bodyElement) {
       return;
@@ -323,6 +314,22 @@ document.addEventListener("DOMContentLoaded", () => {
       width,
       height: fixedHeight,
     };
+  }
+
+  function axisLabelPlacement(index, total, rawX, leftBound, rightBound) {
+    const safeTotal = Math.max(1, Number(total) || 1);
+    let x = Number(rawX);
+    let anchor = "middle";
+
+    if (index === 0) {
+      anchor = "start";
+      x = Math.max(leftBound + 2, x);
+    } else if (index === safeTotal - 1) {
+      anchor = "end";
+      x = Math.min(rightBound - 2, x);
+    }
+
+    return { x, anchor };
   }
 
   function renderLineChart(chartElement, points, options = {}) {
@@ -420,10 +427,17 @@ document.addEventListener("DOMContentLoaded", () => {
         const renderedLabel =
           typeof options.labelFormatter === "function"
             ? options.labelFormatter(point.label)
-            : shortenLabel(point.label, 10);
+            : String(point.label);
+        const placement = axisLabelPlacement(
+          index,
+          validPoints.length,
+          x,
+          padding.left,
+          width - padding.right
+        );
         xLabels.push(
-          `<text class="chart-axis-label" x="${x.toFixed(2)}" y="${height - padding.bottom + 18
-          }" text-anchor="middle">${escapeHtml(renderedLabel)}</text>`
+          `<text class="chart-axis-label" x="${placement.x.toFixed(2)}" y="${height - padding.bottom + 18
+          }" text-anchor="${placement.anchor}">${escapeHtml(renderedLabel)}</text>`
         );
       }
     });
@@ -647,10 +661,18 @@ document.addEventListener("DOMContentLoaded", () => {
         const renderedLabel =
           typeof options.labelFormatter === "function"
             ? options.labelFormatter(point.label)
-            : shortenLabel(point.label, 10);
+            : String(point.label);
+        const labelCenterX = x + barWidth / 2;
+        const placement = axisLabelPlacement(
+          index,
+          plottedPoints.length,
+          labelCenterX,
+          padding.left,
+          width - padding.right
+        );
         xLabels.push(
-          `<text class="chart-axis-label" x="${(x + barWidth / 2).toFixed(2)}" y="${height - padding.bottom + 18
-          }" text-anchor="middle">${escapeHtml(renderedLabel)}</text>`
+          `<text class="chart-axis-label" x="${placement.x.toFixed(2)}" y="${height - padding.bottom + 18
+          }" text-anchor="${placement.anchor}">${escapeHtml(renderedLabel)}</text>`
         );
       }
     });
@@ -1801,7 +1823,7 @@ document.addEventListener("DOMContentLoaded", () => {
       ariaLabel: "Average time between doses by week",
       tickFormatter: (value) => formatMinutesAsDuration(value * 60, true),
       valueFormatter: (value) => formatMinutesAsDuration(value * 60),
-      labelFormatter: (label) => shortenLabel(label, 8),
+      labelFormatter: (label) => label,
     });
   }
 
@@ -1865,7 +1887,7 @@ document.addEventListener("DOMContentLoaded", () => {
           const monthDay = label.slice(5);
           return monthDay.replace("-", "/");
         }
-        return shortenLabel(label, 8);
+        return label;
       },
     });
   }
@@ -1936,7 +1958,7 @@ document.addEventListener("DOMContentLoaded", () => {
       ariaLabel: "Monthly average rating trend",
       tickFormatter: (value) => value.toFixed(1),
       valueFormatter: (value) => `${value.toFixed(2)} / 5`,
-      labelFormatter: (label) => shortenLabel(label, 8),
+      labelFormatter: (label) => label,
     });
 
     const weeklyPoints = weeklyRows
@@ -1950,7 +1972,7 @@ document.addEventListener("DOMContentLoaded", () => {
       integerTicks: true,
       tickFormatter: (value) => formatCount(value),
       valueFormatter: (value) => `${formatCount(value)} entries`,
-      labelFormatter: (label) => shortenLabel(label, 8),
+      labelFormatter: (label) => label,
     });
 
     const topMedicinePoints = topMedicineRows
