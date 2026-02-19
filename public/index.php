@@ -1343,6 +1343,8 @@ function loadTrends(PDO $pdo, int $workspaceId): array
         ];
     }
 
+    $doseHighlightsLookbackDays = 6;
+
     $rankedDoseSql = 'SELECT l1.id,
                              l1.taken_at,
                              l1.medicine_id,
@@ -1351,13 +1353,13 @@ function loadTrends(PDO $pdo, int $workspaceId): array
                       INNER JOIN medicine_intake_logs l2
                           ON DATE(l2.taken_at) = DATE(l1.taken_at)
                           AND l2.workspace_id = l1.workspace_id
-                          AND l2.taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+                          AND l2.taken_at >= DATE_SUB(CURDATE(), INTERVAL ' . $doseHighlightsLookbackDays . ' DAY)
                           AND (
                               l2.taken_at < l1.taken_at
                               OR (l2.taken_at = l1.taken_at AND l2.id <= l1.id)
                           )
                       WHERE l1.workspace_id = ' . $workspaceIdSql . '
-                        AND l1.taken_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
+                        AND l1.taken_at >= DATE_SUB(CURDATE(), INTERVAL ' . $doseHighlightsLookbackDays . ' DAY)
                       GROUP BY l1.id, l1.taken_at, l1.medicine_id';
 
     $doseWeekdayStatement = $pdo->query(
@@ -1552,6 +1554,13 @@ function loadTrends(PDO $pdo, int $workspaceId): array
         'dose_interval_weekly_12_weeks' => $doseIntervalWeekly,
         'dose_interval_weekday_90_days' => $doseIntervalWeekdayPatterns,
         'dose_interval_rolling_7_days_30_days' => $rollingDoseIntervalRows,
+        'dose_weekday_patterns_7_days' => [
+            'available_orders' => $availableDoseOrders,
+            'available_medicines' => $availableMedicines,
+            'rows' => $doseWeekdayPatterns,
+            'dosage_averages' => $doseDosageAverages,
+        ],
+        // Backward-compatible alias for clients that still expect the old key.
         'dose_weekday_patterns_90_days' => [
             'available_orders' => $availableDoseOrders,
             'available_medicines' => $availableMedicines,

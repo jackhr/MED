@@ -422,8 +422,7 @@ document.addEventListener("DOMContentLoaded", () => {
             ? options.labelFormatter(point.label)
             : shortenLabel(point.label, 10);
         xLabels.push(
-          `<text class="chart-axis-label" x="${x.toFixed(2)}" y="${
-            height - padding.bottom + 18
+          `<text class="chart-axis-label" x="${x.toFixed(2)}" y="${height - padding.bottom + 18
           }" text-anchor="middle">${escapeHtml(renderedLabel)}</text>`
         );
       }
@@ -433,12 +432,10 @@ document.addEventListener("DOMContentLoaded", () => {
       <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(
       options.ariaLabel || "Line chart"
     )}">
-        <line class="chart-axis-line" x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${
-      height - padding.bottom
-    }"></line>
-        <line class="chart-axis-line" x1="${padding.left}" y1="${
-      height - padding.bottom
-    }" x2="${width - padding.right}" y2="${height - padding.bottom}"></line>
+        <line class="chart-axis-line" x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${height - padding.bottom
+      }"></line>
+        <line class="chart-axis-line" x1="${padding.left}" y1="${height - padding.bottom
+      }" x2="${width - padding.right}" y2="${height - padding.bottom}"></line>
         ${gridLines.join("")}
         ${yLabels.join("")}
         <path class="chart-line" d="${pathData}"></path>
@@ -652,8 +649,7 @@ document.addEventListener("DOMContentLoaded", () => {
             ? options.labelFormatter(point.label)
             : shortenLabel(point.label, 10);
         xLabels.push(
-          `<text class="chart-axis-label" x="${(x + barWidth / 2).toFixed(2)}" y="${
-            height - padding.bottom + 18
+          `<text class="chart-axis-label" x="${(x + barWidth / 2).toFixed(2)}" y="${height - padding.bottom + 18
           }" text-anchor="middle">${escapeHtml(renderedLabel)}</text>`
         );
       }
@@ -663,12 +659,10 @@ document.addEventListener("DOMContentLoaded", () => {
       <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(
       options.ariaLabel || "Bar chart"
     )}">
-        <line class="chart-axis-line" x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${
-      height - padding.bottom
-    }"></line>
-        <line class="chart-axis-line" x1="${padding.left}" y1="${
-      height - padding.bottom
-    }" x2="${width - padding.right}" y2="${height - padding.bottom}"></line>
+        <line class="chart-axis-line" x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${height - padding.bottom
+      }"></line>
+        <line class="chart-axis-line" x1="${padding.left}" y1="${height - padding.bottom
+      }" x2="${width - padding.right}" y2="${height - padding.bottom}"></line>
         ${gridLines.join("")}
         ${yLabels.join("")}
         ${bars.join("")}
@@ -734,8 +728,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const rowDoseOrder = normalizeDoseOrder(row.dose_order);
       const rowMedicine =
         row.medicine_id === null ||
-        row.medicine_id === undefined ||
-        row.medicine_id === ""
+          row.medicine_id === undefined ||
+          row.medicine_id === ""
           ? "all"
           : normalizeDoseMedicine(row.medicine_id);
       const weekdayIndex = Number(row.weekday_index);
@@ -792,8 +786,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const rowDoseOrder = normalizeDoseOrder(row.dose_order);
       const rowMedicine =
         row.medicine_id === null ||
-        row.medicine_id === undefined ||
-        row.medicine_id === ""
+          row.medicine_id === undefined ||
+          row.medicine_id === ""
           ? "all"
           : normalizeDoseMedicine(row.medicine_id);
       const dosageUnit = String(row.dosage_unit || "").trim();
@@ -867,8 +861,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const rowDoseOrder = normalizeDoseOrder(row.dose_order);
       const rowMedicine =
         row.medicine_id === null ||
-        row.medicine_id === undefined ||
-        row.medicine_id === ""
+          row.medicine_id === undefined ||
+          row.medicine_id === ""
           ? "all"
           : normalizeDoseMedicine(row.medicine_id);
       const weekdayIndex = Number(row.weekday_index);
@@ -1091,8 +1085,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const safeTotal = Math.max(1, Number(totalOrders) || 1);
     const ratio =
       safeTotal <= 1 ? 0 : Math.max(0, Math.min(1, safeIndex / (safeTotal - 1)));
-    const lightness = 34 - ratio * 14;
-    return `hsla(172, 72%, ${lightness.toFixed(1)}%, 0.95)`;
+    const lightness = 59 - ratio * 14;
+    return `hsla(33, 90%, ${lightness.toFixed(1)}%, 1)`;
   }
 
   function renderCombinedDoseOrderChart(chartElement, weekdays, doseOrders, options) {
@@ -1105,10 +1099,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const hasAnyData = sourceWeekdays.some((weekday) =>
       Array.isArray(weekday.doses)
         ? weekday.doses.some(
-            (dose) =>
-              Number.isFinite(Number(dose.avg_minute_of_day)) &&
-              Number(dose.samples) > 0
-          )
+          (dose) =>
+            Number.isFinite(Number(dose.avg_minute_of_day)) &&
+            Number(dose.samples) > 0
+        )
         : false
     );
     if (sourceWeekdays.length === 0 || sourceDoseOrders.length === 0 || !hasAnyData) {
@@ -1133,12 +1127,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const yAt = (value) => padding.top + ((yMax - value) / yMax) * plotHeight;
     const referenceLines = Array.isArray(options?.referenceLines)
       ? options.referenceLines
-          .map((line) => ({
-            value: Number(line?.value),
-            label: String(line?.label || "Average"),
-            color: String(line?.color || "#f5a23a"),
-          }))
-          .filter((line) => Number.isFinite(line.value))
+        .map((line) => ({
+          value: Number(line?.value),
+          label: String(line?.label || "Average"),
+          color: String(line?.color || "#f5a23a"),
+        }))
+        .filter((line) => Number.isFinite(line.value))
       : [];
 
     const gridLines = [];
@@ -1171,8 +1165,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const y = yAt(clampedValue);
       const valueLabel = formatMinutesAsTime(clampedValue * 60);
       referenceLineElements.push(
-        `<line class="chart-reference-line chart-dose-reference-line" x1="${
-          padding.left
+        `<line class="chart-reference-line chart-dose-reference-line" x1="${padding.left
         }" y1="${y.toFixed(2)}" x2="${width - padding.right}" y2="${y.toFixed(
           2
         )}" style="stroke:${escapeHtml(line.color)}"><title>${escapeHtml(
@@ -1232,9 +1225,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const x = centerX - barWidth / 2;
         const tooltipText = `${weekday.weekday_label} ${formatOrdinal(
           normalizedDoseOrder
-        )} dose: ${formatMinutesAsTime(averageMinute)} (${formatCount(
-          samples
-        )} samples)`;
+        )} dose: ${formatMinutesAsTime(averageMinute)}`;
         bars.push(
           `<rect class="chart-bar chart-dose-layer" x="${x.toFixed(
             2
@@ -1248,8 +1239,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
 
       xLabels.push(
-        `<text class="chart-axis-label" x="${centerX.toFixed(2)}" y="${
-          height - padding.bottom + 18
+        `<text class="chart-axis-label" x="${centerX.toFixed(2)}" y="${height - padding.bottom + 18
         }" text-anchor="middle">${escapeHtml(weekday.weekday_label)}</text>`
       );
     });
@@ -1258,12 +1248,10 @@ document.addEventListener("DOMContentLoaded", () => {
       <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(
       options?.ariaLabel || "Combined dose time highlights"
     )}">
-        <line class="chart-axis-line" x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${
-      height - padding.bottom
-    }"></line>
-        <line class="chart-axis-line" x1="${padding.left}" y1="${
-      height - padding.bottom
-    }" x2="${width - padding.right}" y2="${height - padding.bottom}"></line>
+        <line class="chart-axis-line" x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${height - padding.bottom
+      }"></line>
+        <line class="chart-axis-line" x1="${padding.left}" y1="${height - padding.bottom
+      }" x2="${width - padding.right}" y2="${height - padding.bottom}"></line>
         ${gridLines.join("")}
         ${yLabels.join("")}
         ${bars.join("")}
@@ -1365,7 +1353,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function renderDoseOrderTrend(trends) {
-    const doseWeekdayData = trends?.dose_weekday_patterns_90_days || {};
+    const doseWeekdayData =
+      trends?.dose_weekday_patterns_7_days ||
+      trends?.dose_weekday_patterns_90_days ||
+      {};
     const rawRows = Array.isArray(doseWeekdayData.rows)
       ? doseWeekdayData.rows
       : [];
@@ -1379,8 +1370,8 @@ document.addEventListener("DOMContentLoaded", () => {
       : [];
     let availableOrders = Array.isArray(doseWeekdayData.available_orders)
       ? doseWeekdayData.available_orders
-          .map((value) => normalizeDoseOrder(value))
-          .filter((value) => value !== null)
+        .map((value) => normalizeDoseOrder(value))
+        .filter((value) => value !== null)
       : [];
 
     if (selectedDoseView !== "single" && selectedDoseView !== "combined") {
@@ -1413,7 +1404,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (chartDoseOrderMeta) {
         chartDoseOrderMeta.textContent =
-          "No dose-order timing data yet for the last 90 days.";
+          "No dose-order timing data yet for the last 7 days.";
       }
       clearTable(doseOrderBody, "No data yet.");
       clearChart(chartDoseOrder, "No chart data yet.");
@@ -1482,7 +1473,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (activeOrders.length === 0) {
         if (chartDoseOrderMeta) {
           chartDoseOrderMeta.textContent =
-            "No combined dose timing data yet for the last 90 days.";
+            "No combined dose timing data yet for the last 7 days.";
         }
         clearTable(doseOrderBody, "No data yet.");
         clearChart(chartDoseOrder, "No chart data yet.");
@@ -1534,7 +1525,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const dosageSummaryText =
         dosageSummary === "" ? "No dosage averages yet." : dosageSummary;
       if (chartDoseOrderMeta) {
-        chartDoseOrderMeta.textContent = `Combined weekday timing for ${selectedMedicineLabel} over the last 90 days. Avg times: ${averagesSummaryText}. Avg dosages: ${dosageSummaryText}`;
+        chartDoseOrderMeta.textContent = `Combined timing for ${selectedMedicineLabel} over the last 7 days. Avg times: ${averagesSummaryText}. Avg dosages: ${dosageSummaryText}`;
       }
 
       renderTrendRows(doseOrderBody, combinedSeries, 3, (row) => {
@@ -1656,8 +1647,8 @@ document.addEventListener("DOMContentLoaded", () => {
     );
     const selectedDoseDosageText =
       selectedDoseDosage &&
-      selectedDoseDosage.samples > 0 &&
-      String(selectedDoseDosage.dosage_text || "").trim() !== ""
+        selectedDoseDosage.samples > 0 &&
+        String(selectedDoseDosage.dosage_text || "").trim() !== ""
         ? String(selectedDoseDosage.dosage_text)
         : "--";
     const allDoseDosageSummary = perDoseDosageAverages
@@ -1676,7 +1667,7 @@ document.addEventListener("DOMContentLoaded", () => {
       allDoseDosageSummary === "" ? "No dosage averages yet." : allDoseDosageSummary;
 
     if (chartDoseOrderMeta) {
-      chartDoseOrderMeta.textContent = `${selectedDoseLabel} average time by weekday for ${selectedMedicineLabel} over the last 90 days. ${selectedDoseLabel} overall average: ${formatMinutesAsTime(
+      chartDoseOrderMeta.textContent = `${selectedDoseLabel} average time by day for ${selectedMedicineLabel} over the last 7 days. ${selectedDoseLabel} overall average: ${formatMinutesAsTime(
         selectedAverageMinute
       )} (${sampleTotal} samples). ${selectedDoseLabel} avg dosage: ${selectedDoseDosageText}. All dose avg dosages: ${allDoseDosageSummaryText}`;
     }
@@ -1696,7 +1687,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }));
 
     renderBarChart(chartDoseOrder, chartPoints, {
-      ariaLabel: `${selectedDoseLabel} average time by weekday for ${selectedMedicineLabel}`,
+      ariaLabel: `${selectedDoseLabel} average time by day for ${selectedMedicineLabel}`,
       yMax: 24,
       integerTicks: true,
       keepAllPoints: true,
@@ -1774,20 +1765,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const weeklySummaryText =
       avgIntervalThisWeek !== null && intervalThisWeekSamples > 0
         ? `This week average gap: ${formatMinutesAsDuration(
-            avgIntervalThisWeek
-          )} (${intervalThisWeekSamples} gaps).`
+          avgIntervalThisWeek
+        )} (${intervalThisWeekSamples} gaps).`
         : "No dose-gap samples this week yet.";
     const rollingSevenDaySummaryText =
       avgIntervalLast7Days !== null && intervalLast7DaysSamples > 0
         ? `Rolling 7-day average gap: ${formatMinutesAsDuration(
-            avgIntervalLast7Days
-          )} (${intervalLast7DaysSamples} gaps).`
+          avgIntervalLast7Days
+        )} (${intervalLast7DaysSamples} gaps).`
         : "No rolling 7-day dose-gap samples yet.";
     const ninetyDaySummaryText =
       avgIntervalLast90Days !== null && intervalLast90DaysSamples > 0
         ? `Last 90-day average gap: ${formatMinutesAsDuration(
-            avgIntervalLast90Days
-          )} (${intervalLast90DaysSamples} gaps).`
+          avgIntervalLast90Days
+        )} (${intervalLast90DaysSamples} gaps).`
         : "No dose-gap data in the last 90 days.";
 
     if (chartDoseIntervalMeta) {
@@ -1799,7 +1790,7 @@ document.addEventListener("DOMContentLoaded", () => {
         label: String(row.label || "-").replace(/^Week of\s+/i, ""),
         value:
           Number.isFinite(Number(row.avg_interval_minutes)) &&
-          Number(row.avg_interval_minutes) >= 0
+            Number(row.avg_interval_minutes) >= 0
             ? Number(row.avg_interval_minutes) / 60
             : Number.NaN,
       }))
@@ -1841,7 +1832,7 @@ document.addEventListener("DOMContentLoaded", () => {
       label: String(row.date || row.label || "-"),
       value:
         Number.isFinite(Number(row.avg_interval_minutes)) &&
-        Number(row.avg_interval_minutes) >= 0
+          Number(row.avg_interval_minutes) >= 0
           ? Number(row.avg_interval_minutes) / 60
           : Number.NaN,
     }));
