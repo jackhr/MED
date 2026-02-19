@@ -26,6 +26,7 @@ try {
 
 $dbReady = $pdo instanceof PDO;
 $initialMonth = (string) ($_GET['month'] ?? '');
+$canWriteWorkspaceData = Auth::canWrite();
 ?>
 <!doctype html>
 <html lang="en">
@@ -61,7 +62,9 @@ $initialMonth = (string) ($_GET['month'] ?? '');
                 <a class="hamburger-link" href="index.php">Dashboard</a>
                 <a class="hamburger-link" href="trends.php">Trends</a>
                 <a class="hamburger-link is-active" href="calendar.php">Calendar</a>
-                <a class="hamburger-link" href="schedules.php">Schedules</a>
+                <?php if ($canWriteWorkspaceData): ?>
+                    <a class="hamburger-link" href="schedules.php">Schedules</a>
+                <?php endif; ?>
                 <a class="hamburger-link" href="settings.php">Settings</a>
                 <a class="hamburger-link" href="logout.php">Log Out</a>
             </div>

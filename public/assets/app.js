@@ -2,6 +2,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const config = window.MEDICINE_LOG_CONFIG || {};
   const apiPath = config.apiPath || window.location.pathname;
   const canWrite = config.canWrite !== false && config.canWrite !== "false";
+  const entryColumnCount = canWrite ? 7 : 6;
 
   const body = document.body;
   const dbReady = body.dataset.dbReady === "1";
@@ -529,7 +530,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const row = document.createElement("tr");
     const cell = document.createElement("td");
     cell.className = "empty-cell";
-    cell.colSpan = 7;
+    cell.colSpan = entryColumnCount;
     cell.textContent = message;
     row.appendChild(cell);
     entriesBody.appendChild(row);
@@ -574,7 +575,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const dayRow = document.createElement("tr");
         dayRow.className = "day-group-row";
         const dayCell = document.createElement("td");
-        dayCell.colSpan = 7;
+        dayCell.colSpan = entryColumnCount;
         const intakeLabel = group.entries.length === 1 ? "intake" : "intakes";
         const dosageSummary = summarizeGroupDosage(group.entries);
         dayCell.textContent = `${group.dayLabel} (${group.entries.length} ${intakeLabel})${dosageSummary}`;
@@ -601,8 +602,8 @@ document.addEventListener("DOMContentLoaded", () => {
         );
         row.appendChild(createCell(entry.notes || ""));
 
-        const actionsCell = document.createElement("td");
         if (canWrite) {
+          const actionsCell = document.createElement("td");
           const editButton = document.createElement("button");
           editButton.type = "button";
           editButton.className = "table-action";
@@ -610,10 +611,8 @@ document.addEventListener("DOMContentLoaded", () => {
           editButton.dataset.id = String(entry.id);
           editButton.textContent = "Edit";
           actionsCell.appendChild(editButton);
-        } else {
-          actionsCell.textContent = "Read only";
+          row.appendChild(actionsCell);
         }
-        row.appendChild(actionsCell);
 
         entriesBody.appendChild(row);
       });

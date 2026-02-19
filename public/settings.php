@@ -26,6 +26,7 @@ try {
 
 $dbReady = $pdo instanceof PDO;
 $signedInUsername = Auth::displayLabel() ?? '';
+$canWriteWorkspaceData = Auth::canWrite();
 ?>
 <!doctype html>
 <html lang="en">
@@ -60,7 +61,9 @@ $signedInUsername = Auth::displayLabel() ?? '';
                 <a class="hamburger-link" href="index.php">Dashboard</a>
                 <a class="hamburger-link" href="trends.php">Trends</a>
                 <a class="hamburger-link" href="calendar.php">Calendar</a>
-                <a class="hamburger-link" href="schedules.php">Schedules</a>
+                <?php if ($canWriteWorkspaceData): ?>
+                    <a class="hamburger-link" href="schedules.php">Schedules</a>
+                <?php endif; ?>
                 <a class="hamburger-link is-active" href="settings.php">Settings</a>
                 <a class="hamburger-link" href="logout.php">Log Out</a>
             </div>

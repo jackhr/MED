@@ -25,6 +25,7 @@ try {
 }
 
 $dbReady = $pdo instanceof PDO;
+$canWriteWorkspaceData = Auth::canWrite();
 ?>
 <!doctype html>
 <html lang="en">
@@ -59,7 +60,9 @@ $dbReady = $pdo instanceof PDO;
                 <a class="hamburger-link" href="index.php">Dashboard</a>
                 <a class="hamburger-link is-active" href="trends.php">Trends</a>
                 <a class="hamburger-link" href="calendar.php">Calendar</a>
-                <a class="hamburger-link" href="schedules.php">Schedules</a>
+                <?php if ($canWriteWorkspaceData): ?>
+                    <a class="hamburger-link" href="schedules.php">Schedules</a>
+                <?php endif; ?>
                 <a class="hamburger-link" href="settings.php">Settings</a>
                 <a class="hamburger-link" href="logout.php">Log Out</a>
             </div>

@@ -12,6 +12,33 @@ date_default_timezone_set(Env::get('APP_TIMEZONE', 'UTC') ?? 'UTC');
 Auth::startSession();
 Auth::requireAuthForPage('login.php');
 
+if (!Auth::canWrite()) {
+    http_response_code(403);
+    ?>
+    <!doctype html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Schedules Unavailable</title>
+        <link rel="icon" href="favicon.svg" type="image/svg+xml">
+        <link rel="shortcut icon" href="favicon.svg">
+        <link rel="stylesheet" href="assets/style.css">
+    </head>
+    <body>
+        <main class="dashboard">
+            <article class="card">
+                <h1>403 - Access Denied</h1>
+                <p>Your workspace role is view-only. Dose schedules are not available.</p>
+                <p><a class="ghost-btn" href="index.php">Back to Dashboard</a></p>
+            </article>
+        </main>
+    </body>
+    </html>
+    <?php
+    exit;
+}
+
 function e(string $value): string
 {
     return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');

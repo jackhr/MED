@@ -260,6 +260,10 @@ body.modal-open {
     align-items          : start;
 }
 
+.workspace-grid > :only-child {
+    grid-column: 1 / -1;
+}
+
 .schedule-grid {
     display              : grid;
     grid-template-columns: 390px minmax(0, 1fr);

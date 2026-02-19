@@ -3221,6 +3221,7 @@ $dbReady = $pdo instanceof PDO;
 $signedInUsername = Auth::displayLabel() ?? '';
 $signedInWorkspaceRole = normalizeWorkspaceRole(Auth::workspaceRole());
 $canWriteWorkspaceData = workspaceCanWrite($signedInWorkspaceRole);
+$entryTableColumnCount = $canWriteWorkspaceData ? 7 : 6;
 ?>
 <!doctype html>
 <html lang="en">
@@ -3260,7 +3261,9 @@ $canWriteWorkspaceData = workspaceCanWrite($signedInWorkspaceRole);
                 <a class="hamburger-link is-active" href="index.php">Dashboard</a>
                 <a class="hamburger-link" href="trends.php">Trends</a>
                 <a class="hamburger-link" href="calendar.php">Calendar</a>
-                <a class="hamburger-link" href="schedules.php">Schedules</a>
+                <?php if ($canWriteWorkspaceData): ?>
+                    <a class="hamburger-link" href="schedules.php">Schedules</a>
+                <?php endif; ?>
                 <a class="hamburger-link" href="settings.php">Settings</a>
                 <a class="hamburger-link" href="logout.php">Log Out</a>
             </div>
@@ -3300,55 +3303,57 @@ $canWriteWorkspaceData = workspaceCanWrite($signedInWorkspaceRole);
         </section>
 
         <section class="workspace-grid">
-            <article class="card">
-                <h2>Add Intake</h2>
-                <form id="create-intake-form" novalidate>
-                    <label>Medicine</label>
-                    <div id="create-medicine-picker" class="medicine-picker" data-mode="existing">
-                        <div class="medicine-tabs">
-                            <button type="button" class="medicine-tab is-active" data-tab-mode="existing">Select Existing</button>
-                            <button type="button" class="medicine-tab" data-tab-mode="new">Add New</button>
+            <?php if ($canWriteWorkspaceData): ?>
+                <article class="card">
+                    <h2>Add Intake</h2>
+                    <form id="create-intake-form" novalidate>
+                        <label>Medicine</label>
+                        <div id="create-medicine-picker" class="medicine-picker" data-mode="existing">
+                            <div class="medicine-tabs">
+                                <button type="button" class="medicine-tab is-active" data-tab-mode="existing">Select Existing</button>
+                                <button type="button" class="medicine-tab" data-tab-mode="new">Add New</button>
+                            </div>
+                            <div class="medicine-panel" data-panel-mode="existing">
+                                <select id="medicine_select" name="medicine_select" required></select>
+                            </div>
+                            <div class="medicine-panel" data-panel-mode="new" hidden>
+                                <input id="medicine_custom" name="medicine_custom" type="text" maxlength="120" placeholder="Type a new medicine name">
+                            </div>
                         </div>
-                        <div class="medicine-panel" data-panel-mode="existing">
-                            <select id="medicine_select" name="medicine_select" required></select>
+
+                        <label for="dosage_value">Dosage</label>
+                        <div class="dosage-fields">
+                            <input id="dosage_value" name="dosage_value" type="number" min="0.01" step="0.01" value="20" required>
+                            <select id="dosage_unit" name="dosage_unit" required>
+                                <option value="mg" selected>mg</option>
+                                <option value="ml">ml</option>
+                                <option value="g">g</option>
+                                <option value="mcg">mcg</option>
+                                <option value="tablet">tablet</option>
+                                <option value="drop">drop</option>
+                            </select>
                         </div>
-                        <div class="medicine-panel" data-panel-mode="new" hidden>
-                            <input id="medicine_custom" name="medicine_custom" type="text" maxlength="120" placeholder="Type a new medicine name">
+
+                        <label for="rating">Rating</label>
+                        <div id="create-rating-widget" class="star-rating" role="radiogroup" aria-label="Choose rating">
+                            <button type="button" class="star-btn is-active" data-star="1" role="radio" aria-label="1 star" aria-checked="false">★</button>
+                            <button type="button" class="star-btn is-active" data-star="2" role="radio" aria-label="2 stars" aria-checked="false">★</button>
+                            <button type="button" class="star-btn is-active" data-star="3" role="radio" aria-label="3 stars" aria-checked="true">★</button>
+                            <button type="button" class="star-btn" data-star="4" role="radio" aria-label="4 stars" aria-checked="false">★</button>
+                            <button type="button" class="star-btn" data-star="5" role="radio" aria-label="5 stars" aria-checked="false">★</button>
                         </div>
-                    </div>
+                        <input id="rating" name="rating" type="hidden" value="3" required>
 
-                    <label for="dosage_value">Dosage</label>
-                    <div class="dosage-fields">
-                        <input id="dosage_value" name="dosage_value" type="number" min="0.01" step="0.01" value="20" required>
-                        <select id="dosage_unit" name="dosage_unit" required>
-                            <option value="mg" selected>mg</option>
-                            <option value="ml">ml</option>
-                            <option value="g">g</option>
-                            <option value="mcg">mcg</option>
-                            <option value="tablet">tablet</option>
-                            <option value="drop">drop</option>
-                        </select>
-                    </div>
+                        <label for="taken_at">Date & Time Taken</label>
+                        <input id="taken_at" name="taken_at" type="datetime-local" required>
 
-                    <label for="rating">Rating</label>
-                    <div id="create-rating-widget" class="star-rating" role="radiogroup" aria-label="Choose rating">
-                        <button type="button" class="star-btn is-active" data-star="1" role="radio" aria-label="1 star" aria-checked="false">★</button>
-                        <button type="button" class="star-btn is-active" data-star="2" role="radio" aria-label="2 stars" aria-checked="false">★</button>
-                        <button type="button" class="star-btn is-active" data-star="3" role="radio" aria-label="3 stars" aria-checked="true">★</button>
-                        <button type="button" class="star-btn" data-star="4" role="radio" aria-label="4 stars" aria-checked="false">★</button>
-                        <button type="button" class="star-btn" data-star="5" role="radio" aria-label="5 stars" aria-checked="false">★</button>
-                    </div>
-                    <input id="rating" name="rating" type="hidden" value="3" required>
+                        <label for="notes">Notes (Optional)</label>
+                        <textarea id="notes" name="notes" maxlength="255"></textarea>
 
-                    <label for="taken_at">Date & Time Taken</label>
-                    <input id="taken_at" name="taken_at" type="datetime-local" required>
-
-                    <label for="notes">Notes (Optional)</label>
-                    <textarea id="notes" name="notes" maxlength="255"></textarea>
-
-                    <button class="primary-btn" type="submit">Save Intake</button>
-                </form>
-            </article>
+                        <button class="primary-btn" type="submit">Save Intake</button>
+                    </form>
+                </article>
+            <?php endif; ?>
 
             <article class="card">
                 <div class="section-header">
@@ -3445,12 +3450,14 @@ $canWriteWorkspaceData = workspaceCanWrite($signedInWorkspaceRole);
                                 <th>Dosage</th>
                                 <th>Rating</th>
                                 <th>Notes</th>
-                                <th>Actions</th>
+                                <?php if ($canWriteWorkspaceData): ?>
+                                    <th>Actions</th>
+                                <?php endif; ?>
                             </tr>
                         </thead>
                         <tbody id="entries-body">
                             <tr>
-                                <td class="empty-cell" colspan="7">Loading...</td>
+                                <td class="empty-cell" colspan="<?= $entryTableColumnCount ?>">Loading...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -3462,68 +3469,70 @@ $canWriteWorkspaceData = workspaceCanWrite($signedInWorkspaceRole);
 
     </main>
 
-    <section id="edit-modal" class="modal" hidden>
-        <div class="modal-backdrop" data-close-modal="true"></div>
-        <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
-            <div class="modal-header">
-                <h3 id="edit-modal-title">Edit Intake</h3>
-                <button type="button" class="ghost-btn" data-close-modal="true">Close</button>
+    <?php if ($canWriteWorkspaceData): ?>
+        <section id="edit-modal" class="modal" hidden>
+            <div class="modal-backdrop" data-close-modal="true"></div>
+            <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
+                <div class="modal-header">
+                    <h3 id="edit-modal-title">Edit Intake</h3>
+                    <button type="button" class="ghost-btn" data-close-modal="true">Close</button>
+                </div>
+
+                <form id="edit-intake-form" novalidate>
+                    <input id="edit_id" name="id" type="hidden">
+
+                    <label>Medicine</label>
+                    <div id="edit-medicine-picker" class="medicine-picker" data-mode="existing">
+                        <div class="medicine-tabs">
+                            <button type="button" class="medicine-tab is-active" data-tab-mode="existing">Select Existing</button>
+                            <button type="button" class="medicine-tab" data-tab-mode="new">Add New</button>
+                        </div>
+                        <div class="medicine-panel" data-panel-mode="existing">
+                            <select id="edit_medicine_select" name="edit_medicine_select" required></select>
+                        </div>
+                        <div class="medicine-panel" data-panel-mode="new" hidden>
+                            <input id="edit_medicine_custom" name="edit_medicine_custom" type="text" maxlength="120" placeholder="Type a new medicine name">
+                        </div>
+                    </div>
+
+                    <label for="edit_dosage_value">Dosage</label>
+                    <div class="dosage-fields">
+                        <input id="edit_dosage_value" name="edit_dosage_value" type="number" min="0.01" step="0.01" value="20" required>
+                        <select id="edit_dosage_unit" name="edit_dosage_unit" required>
+                            <option value="mg" selected>mg</option>
+                            <option value="ml">ml</option>
+                            <option value="g">g</option>
+                            <option value="mcg">mcg</option>
+                            <option value="tablet">tablet</option>
+                            <option value="drop">drop</option>
+                        </select>
+                    </div>
+
+                    <label for="edit_rating">Rating</label>
+                    <div id="edit-rating-widget" class="star-rating" role="radiogroup" aria-label="Choose rating">
+                        <button type="button" class="star-btn is-active" data-star="1" role="radio" aria-label="1 star" aria-checked="false">★</button>
+                        <button type="button" class="star-btn is-active" data-star="2" role="radio" aria-label="2 stars" aria-checked="false">★</button>
+                        <button type="button" class="star-btn is-active" data-star="3" role="radio" aria-label="3 stars" aria-checked="true">★</button>
+                        <button type="button" class="star-btn" data-star="4" role="radio" aria-label="4 stars" aria-checked="false">★</button>
+                        <button type="button" class="star-btn" data-star="5" role="radio" aria-label="5 stars" aria-checked="false">★</button>
+                    </div>
+                    <input id="edit_rating" name="rating" type="hidden" value="3" required>
+
+                    <label for="edit_taken_at">Date & Time Taken</label>
+                    <input id="edit_taken_at" name="taken_at" type="datetime-local" required>
+
+                    <label for="edit_notes">Notes (Optional)</label>
+                    <textarea id="edit_notes" name="notes" maxlength="255"></textarea>
+
+                    <div class="modal-actions">
+                        <button id="delete-entry-btn" type="button" class="danger-btn">Delete Entry</button>
+                        <button type="button" class="ghost-btn" data-close-modal="true">Cancel</button>
+                        <button type="submit" class="primary-btn">Save Changes</button>
+                    </div>
+                </form>
             </div>
-
-            <form id="edit-intake-form" novalidate>
-                <input id="edit_id" name="id" type="hidden">
-
-                <label>Medicine</label>
-                <div id="edit-medicine-picker" class="medicine-picker" data-mode="existing">
-                    <div class="medicine-tabs">
-                        <button type="button" class="medicine-tab is-active" data-tab-mode="existing">Select Existing</button>
-                        <button type="button" class="medicine-tab" data-tab-mode="new">Add New</button>
-                    </div>
-                    <div class="medicine-panel" data-panel-mode="existing">
-                        <select id="edit_medicine_select" name="edit_medicine_select" required></select>
-                    </div>
-                    <div class="medicine-panel" data-panel-mode="new" hidden>
-                        <input id="edit_medicine_custom" name="edit_medicine_custom" type="text" maxlength="120" placeholder="Type a new medicine name">
-                    </div>
-                </div>
-
-                <label for="edit_dosage_value">Dosage</label>
-                <div class="dosage-fields">
-                    <input id="edit_dosage_value" name="edit_dosage_value" type="number" min="0.01" step="0.01" value="20" required>
-                    <select id="edit_dosage_unit" name="edit_dosage_unit" required>
-                        <option value="mg" selected>mg</option>
-                        <option value="ml">ml</option>
-                        <option value="g">g</option>
-                        <option value="mcg">mcg</option>
-                        <option value="tablet">tablet</option>
-                        <option value="drop">drop</option>
-                    </select>
-                </div>
-
-                <label for="edit_rating">Rating</label>
-                <div id="edit-rating-widget" class="star-rating" role="radiogroup" aria-label="Choose rating">
-                    <button type="button" class="star-btn is-active" data-star="1" role="radio" aria-label="1 star" aria-checked="false">★</button>
-                    <button type="button" class="star-btn is-active" data-star="2" role="radio" aria-label="2 stars" aria-checked="false">★</button>
-                    <button type="button" class="star-btn is-active" data-star="3" role="radio" aria-label="3 stars" aria-checked="true">★</button>
-                    <button type="button" class="star-btn" data-star="4" role="radio" aria-label="4 stars" aria-checked="false">★</button>
-                    <button type="button" class="star-btn" data-star="5" role="radio" aria-label="5 stars" aria-checked="false">★</button>
-                </div>
-                <input id="edit_rating" name="rating" type="hidden" value="3" required>
-
-                <label for="edit_taken_at">Date & Time Taken</label>
-                <input id="edit_taken_at" name="taken_at" type="datetime-local" required>
-
-                <label for="edit_notes">Notes (Optional)</label>
-                <textarea id="edit_notes" name="notes" maxlength="255"></textarea>
-
-                <div class="modal-actions">
-                    <button id="delete-entry-btn" type="button" class="danger-btn">Delete Entry</button>
-                    <button type="button" class="ghost-btn" data-close-modal="true">Cancel</button>
-                    <button type="submit" class="primary-btn">Save Changes</button>
-                </div>
-            </form>
-        </div>
-    </section>
+        </section>
+    <?php endif; ?>
 
     <noscript>
         <div class="alert alert-error noscript-alert">
