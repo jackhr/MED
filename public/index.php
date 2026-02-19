@@ -3316,34 +3316,36 @@ $entryTableColumnCount = $canWriteWorkspaceData ? 7 : 6;
                 <div class="section-header">
                     <h2>Recent Entries</h2>
                     <div class="history-header-controls">
-                        <span id="table-meta" class="meta-text">Loading entries...</span>
-                        <?php if ($canWriteWorkspaceData): ?>
+                        <div class="history-header-actions">
+                            <?php if ($canWriteWorkspaceData): ?>
+                                <button
+                                    id="open-create-modal-btn"
+                                    type="button"
+                                    class="primary-btn add-intake-btn"
+                                >
+                                    Add Intake
+                                </button>
+                            <?php endif; ?>
                             <button
-                                id="open-create-modal-btn"
+                                id="history-filter-toggle"
                                 type="button"
-                                class="primary-btn add-intake-btn"
+                                class="ghost-btn history-toggle-btn"
+                                aria-controls="history-tools-panel"
+                                aria-expanded="false"
                             >
-                                Add Intake
+                                Show Filters
                             </button>
-                        <?php endif; ?>
-                        <button
-                            id="history-filter-toggle"
-                            type="button"
-                            class="ghost-btn history-toggle-btn"
-                            aria-controls="history-tools-panel"
-                            aria-expanded="false"
-                        >
-                            Show Filters
-                        </button>
-                        <button
-                            id="data-tools-toggle"
-                            type="button"
-                            class="ghost-btn history-toggle-btn"
-                            aria-controls="data-tools-panel"
-                            aria-expanded="false"
-                        >
-                            Show Data Tools
-                        </button>
+                            <button
+                                id="data-tools-toggle"
+                                type="button"
+                                class="ghost-btn history-toggle-btn"
+                                aria-controls="data-tools-panel"
+                                aria-expanded="false"
+                            >
+                                Show Data Tools
+                            </button>
+                        </div>
+                        <span id="table-meta" class="meta-text">Loading entries...</span>
                     </div>
                 </div>
 

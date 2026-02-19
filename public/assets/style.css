@@ -657,10 +657,22 @@ h2 {
 }
 
 .history-header-controls {
-    display    : flex;
-    align-items: center;
-    gap        : 0.56rem;
-    flex-wrap  : wrap;
+    display       : flex;
+    flex-direction: column;
+    align-items   : flex-end;
+    gap           : 0.24rem;
+}
+
+.history-header-actions {
+    display        : flex;
+    align-items    : center;
+    justify-content: flex-end;
+    gap            : 0.56rem;
+    flex-wrap      : wrap;
+}
+
+.history-header-controls #table-meta {
+    text-align: right;
 }
 
 .history-toggle-btn {
