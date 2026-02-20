@@ -407,21 +407,55 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const xLabels = [];
     const circles = [];
+    const hoverZones = [];
+    const xPositions = validPoints.map((_, index) => xAt(index));
     const labelStep = validPoints.length > 8 ? Math.ceil(validPoints.length / 6) : 1;
     validPoints.forEach((point, index) => {
-      const x = xAt(index);
+      const x = xPositions[index];
       const y = yAt(point.value);
       const valueLabel =
         typeof options.valueFormatter === "function"
           ? options.valueFormatter(point.value)
           : String(point.value);
+      const tooltipText =
+        typeof options.tooltipFormatter === "function"
+          ? String(options.tooltipFormatter(point, valueLabel))
+          : `${point.label}: ${valueLabel}`;
+      const encodedTooltipText = encodeURIComponent(tooltipText);
       circles.push(
         `<circle class="chart-point" cx="${x.toFixed(2)}" cy="${y.toFixed(
           2
-        )}" r="3.8"><title>${escapeHtml(
-          `${point.label}: ${valueLabel}`
+        )}" r="3.8" data-tooltip="${encodedTooltipText}" data-tooltip-anchor-x="${x.toFixed(
+          2
+        )}" data-tooltip-anchor-y="${y.toFixed(2)}"><title>${escapeHtml(
+          tooltipText
         )}</title></circle>`
       );
+
+      if (options.enableHoverTooltip === true && options.hoverMode === "x") {
+        const previousX = index > 0 ? xPositions[index - 1] : padding.left;
+        const nextX =
+          index < validPoints.length - 1
+            ? xPositions[index + 1]
+            : width - padding.right;
+        const zoneLeft = index === 0 ? padding.left : (previousX + x) / 2;
+        const zoneRight =
+          index === validPoints.length - 1
+            ? width - padding.right
+            : (x + nextX) / 2;
+        const zoneWidth = Math.max(1, zoneRight - zoneLeft);
+        hoverZones.push(
+          `<rect class="chart-line-hover-zone" x="${zoneLeft.toFixed(
+            2
+          )}" y="${padding.top.toFixed(2)}" width="${zoneWidth.toFixed(
+            2
+          )}" height="${plotHeight.toFixed(
+            2
+          )}" fill="transparent" data-tooltip="${encodedTooltipText}" data-tooltip-anchor-x="${x.toFixed(
+            2
+          )}" data-tooltip-anchor-y="${y.toFixed(2)}"></rect>`
+        );
+      }
 
       if (index % labelStep === 0 || index === validPoints.length - 1) {
         const renderedLabel =
@@ -454,9 +488,18 @@ document.addEventListener("DOMContentLoaded", () => {
         ${yLabels.join("")}
         <path class="chart-line" d="${pathData}"></path>
         ${circles.join("")}
+        ${hoverZones.join("")}
         ${xLabels.join("")}
       </svg>
     `;
+
+    if (options.enableHoverTooltip === true) {
+      const selector =
+        options.hoverMode === "x"
+          ? ".chart-line-hover-zone[data-tooltip]"
+          : ".chart-point[data-tooltip]";
+      attachChartHoverTooltip(chartElement, selector);
+    }
   }
 
   function attachChartHoverTooltip(chartElement, selector) {
@@ -474,11 +517,13 @@ document.addEventListener("DOMContentLoaded", () => {
     tooltip.hidden = true;
     chartElement.appendChild(tooltip);
 
-    const positionTooltip = (clientX, clientY) => {
+    const positionTooltip = (clientX, clientY, anchored = false) => {
       const shellRect = chartElement.getBoundingClientRect();
       const tooltipWidth = tooltip.offsetWidth;
       const tooltipHeight = tooltip.offsetHeight;
-      const baseX = clientX - shellRect.left + 12;
+      const baseX = anchored
+        ? clientX - shellRect.left - tooltipWidth / 2
+        : clientX - shellRect.left + 12;
       const baseY = clientY - shellRect.top - tooltipHeight - 10;
       const clampedX = Math.min(
         Math.max(8, baseX),
@@ -490,6 +535,45 @@ document.addEventListener("DOMContentLoaded", () => {
       );
       tooltip.style.left = `${clampedX}px`;
       tooltip.style.top = `${clampedY}px`;
+    };
+
+    const getTooltipAnchor = (targetElement, fallbackClientX, fallbackClientY) => {
+      const anchorX = Number(targetElement.getAttribute("data-tooltip-anchor-x"));
+      const anchorY = Number(targetElement.getAttribute("data-tooltip-anchor-y"));
+      if (!Number.isFinite(anchorX) || !Number.isFinite(anchorY)) {
+        return {
+          clientX: fallbackClientX,
+          clientY: fallbackClientY,
+          anchored: false,
+        };
+      }
+
+      const svg = targetElement.ownerSVGElement || chartElement.querySelector("svg");
+      if (!svg) {
+        return {
+          clientX: fallbackClientX,
+          clientY: fallbackClientY,
+          anchored: false,
+        };
+      }
+
+      const viewBox = svg.viewBox && svg.viewBox.baseVal ? svg.viewBox.baseVal : null;
+      if (!viewBox || viewBox.width <= 0 || viewBox.height <= 0) {
+        return {
+          clientX: fallbackClientX,
+          clientY: fallbackClientY,
+          anchored: false,
+        };
+      }
+
+      const svgRect = svg.getBoundingClientRect();
+      const normalizedX = (anchorX - viewBox.x) / viewBox.width;
+      const normalizedY = (anchorY - viewBox.y) / viewBox.height;
+      return {
+        clientX: svgRect.left + normalizedX * svgRect.width,
+        clientY: svgRect.top + normalizedY * svgRect.height,
+        anchored: true,
+      };
     };
 
     const hideTooltip = () => {
@@ -513,7 +597,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
         tooltip.textContent = decoded;
         tooltip.hidden = false;
-        positionTooltip(event.clientX, event.clientY);
+        const anchor = getTooltipAnchor(
+          targetElement,
+          event.clientX,
+          event.clientY
+        );
+        positionTooltip(anchor.clientX, anchor.clientY, anchor.anchored);
       });
 
       targetElement.addEventListener("mousemove", (event) => {
@@ -521,7 +610,12 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
         }
 
-        positionTooltip(event.clientX, event.clientY);
+        const anchor = getTooltipAnchor(
+          targetElement,
+          event.clientX,
+          event.clientY
+        );
+        positionTooltip(anchor.clientX, anchor.clientY, anchor.anchored);
       });
 
       targetElement.addEventListener("mouseleave", hideTooltip);
@@ -1834,30 +1928,50 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const latestRowWithSamples = [...rollingRows]
       .reverse()
-      .find((row) => Number(row.samples) > 0);
+      .find(
+        (row) =>
+          Number(row.intake_count) >= 2 &&
+          Number(row.day_gap_samples) > 0 &&
+          Number.isFinite(Number(row.day_avg_interval_minutes))
+      );
 
     if (chartDoseIntervalRollingMeta) {
       if (
         latestRowWithSamples &&
-        Number.isFinite(Number(latestRowWithSamples.avg_interval_minutes))
+        Number.isFinite(Number(latestRowWithSamples.day_avg_interval_minutes))
       ) {
-        chartDoseIntervalRollingMeta.textContent = `Rolling 7-day average time between consecutive doses over the last 30 days. Latest window (${latestRowWithSamples.label || latestRowWithSamples.date || "today"}): ${formatMinutesAsDuration(
-          Number(latestRowWithSamples.avg_interval_minutes)
-        )} (${formatCount(latestRowWithSamples.samples)} gaps).`;
+        chartDoseIntervalRollingMeta.textContent = `Daily dose gap over the last 30 days. Latest day (${latestRowWithSamples.label || latestRowWithSamples.date || "today"}): ${formatMinutesAsDuration(
+          Number(latestRowWithSamples.day_avg_interval_minutes)
+        )}.`;
       } else {
         chartDoseIntervalRollingMeta.textContent =
-          "Rolling 7-day average time between consecutive doses over the last 30 days. No rolling-window samples yet.";
+          "Daily dose gap over the last 30 days. No same-day gaps yet.";
       }
     }
 
-    const chartPoints = rollingRows.map((row) => ({
-      label: String(row.date || row.label || "-"),
-      value:
-        Number.isFinite(Number(row.avg_interval_minutes)) &&
-          Number(row.avg_interval_minutes) >= 0
-          ? Number(row.avg_interval_minutes) / 60
-          : Number.NaN,
-    }));
+    const chartPoints = rollingRows.map((row) => {
+      const intakeCount = Number(row.intake_count);
+      const dayAvgIntervalMinutes = Number(row.day_avg_interval_minutes);
+      const dayGapSamples = Number(row.day_gap_samples);
+      const hasDayGap =
+        Number.isFinite(dayGapSamples) &&
+        dayGapSamples > 0 &&
+        Number.isFinite(dayAvgIntervalMinutes) &&
+        dayAvgIntervalMinutes >= 0;
+      return {
+        label: String(row.date || row.label || "-"),
+        intake_count: Number.isFinite(intakeCount) ? intakeCount : 0,
+        day_avg_interval_minutes: hasDayGap ? dayAvgIntervalMinutes : null,
+        day_gap_samples: Number.isFinite(dayGapSamples) ? dayGapSamples : 0,
+        // When there are fewer than two intakes, show an explicit zero value.
+        value:
+          Number.isFinite(intakeCount) &&
+            intakeCount >= 2 &&
+            hasDayGap
+            ? dayAvgIntervalMinutes / 60
+            : 0,
+      };
+    });
 
     const rollingValues = chartPoints
       .map((point) => point.value)
@@ -1879,9 +1993,19 @@ document.addEventListener("DOMContentLoaded", () => {
     renderLineChart(chartDoseIntervalRolling, chartPoints, {
       yMin,
       ...(Number.isFinite(yMax) ? { yMax } : {}),
-      ariaLabel: "Rolling 7-day average time between doses",
+      ariaLabel: "Daily dose gap by day",
+      enableHoverTooltip: true,
+      hoverMode: "x",
       tickFormatter: (value) => formatMinutesAsDuration(value * 60, true),
       valueFormatter: (value) => formatMinutesAsDuration(value * 60),
+      tooltipFormatter: (point) => {
+        const dayGapMinutes = Number(point.day_avg_interval_minutes);
+        const intakeCount = Number(point.intake_count || 0);
+        if (Number.isFinite(dayGapMinutes) && dayGapMinutes >= 0 && intakeCount >= 2) {
+          return `${point.label}: ${formatMinutesAsDuration(dayGapMinutes)}`;
+        }
+        return `${point.label}: 0m (fewer than 2 intakes)`;
+      },
       labelFormatter: (label) => {
         if (/^\d{4}-\d{2}-\d{2}$/.test(label)) {
           const monthDay = label.slice(5);

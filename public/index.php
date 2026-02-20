@@ -1286,6 +1286,16 @@ function loadTrends(PDO $pdo, int $workspaceId): array
     );
     $dailyDoseIntervalRows = $dailyDoseIntervalStatement->fetchAll();
 
+    $dailyIntakeCountStatement = $pdo->query(
+        'SELECT DATE(l.taken_at) AS day_date,
+                COUNT(*) AS intake_count
+         FROM medicine_intake_logs l
+         WHERE l.workspace_id = ' . $workspaceIdSql . '
+           AND l.taken_at >= DATE_SUB(CURDATE(), INTERVAL 45 DAY)
+         GROUP BY DATE(l.taken_at)'
+    );
+    $dailyIntakeCountRows = $dailyIntakeCountStatement->fetchAll();
+
     $dailyDoseIntervalsByDate = [];
     foreach ($dailyDoseIntervalRows as $row) {
         $dayDate = isset($row['day_date']) ? (string) $row['day_date'] : '';
@@ -1307,10 +1317,22 @@ function loadTrends(PDO $pdo, int $workspaceId): array
         ];
     }
 
+    $dailyIntakeCountsByDate = [];
+    foreach ($dailyIntakeCountRows as $row) {
+        $dayDate = isset($row['day_date']) ? (string) $row['day_date'] : '';
+        if ($dayDate === '') {
+            continue;
+        }
+
+        $dailyIntakeCountsByDate[$dayDate] = (int) ($row['intake_count'] ?? 0);
+    }
+
     $rollingDoseIntervalRows = [];
     $rollingStartDate = (new DateTimeImmutable('today'))->modify('-29 days');
     for ($dayOffset = 0; $dayOffset < 30; $dayOffset += 1) {
         $currentDay = $rollingStartDate->modify('+' . $dayOffset . ' days');
+        $currentDayKey = $currentDay->format('Y-m-d');
+        $currentDayIntakeCount = (int) ($dailyIntakeCountsByDate[$currentDayKey] ?? 0);
         $windowWeightedMinutes = 0.0;
         $windowSamples = 0;
 
@@ -1331,15 +1353,34 @@ function loadTrends(PDO $pdo, int $workspaceId): array
             $windowWeightedMinutes += $avgIntervalMinutes * $samples;
         }
 
-        $rollingAverageMinutes = $windowSamples > 0
-            ? round($windowWeightedMinutes / $windowSamples, 2)
+        // A day with fewer than 2 intakes cannot have a same-day gap.
+        $dayStats = $dailyDoseIntervalsByDate[$currentDayKey] ?? null;
+        $dayAverageMinutes = is_array($dayStats) && isset($dayStats['avg_interval_minutes'])
+            ? round((float) $dayStats['avg_interval_minutes'], 2)
             : null;
+        $dayGapSamples = is_array($dayStats)
+            ? (int) ($dayStats['samples'] ?? 0)
+            : 0;
+
+        if ($currentDayIntakeCount < 2) {
+            $rollingAverageMinutes = 0.0;
+            $displaySamples = 0;
+        } else {
+            $rollingAverageMinutes = $windowSamples > 0
+                ? round($windowWeightedMinutes / $windowSamples, 2)
+                : null;
+            $displaySamples = $windowSamples;
+        }
 
         $rollingDoseIntervalRows[] = [
-            'date' => $currentDay->format('Y-m-d'),
-            'label' => formatDateOnly($currentDay->format('Y-m-d')),
+            'date' => $currentDayKey,
+            'label' => formatDateOnly($currentDayKey),
             'avg_interval_minutes' => $rollingAverageMinutes,
-            'samples' => $windowSamples,
+            'samples' => $displaySamples,
+            'window_samples' => $windowSamples,
+            'intake_count' => $currentDayIntakeCount,
+            'day_avg_interval_minutes' => $dayAverageMinutes,
+            'day_gap_samples' => $dayGapSamples,
         ];
     }
 

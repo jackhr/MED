@@ -162,8 +162,8 @@ $canWriteWorkspaceData = Auth::canWrite();
             </article>
 
             <article class="card trends-card-wide">
-                <h2>Rolling 7-Day Dose Gap</h2>
-                <p id="chart-dose-interval-rolling-meta" class="meta-text">Rolling 7-day average time between consecutive doses over the last 30 days.</p>
+                <h2>Daily Dose Gap (30 Days)</h2>
+                <p id="chart-dose-interval-rolling-meta" class="meta-text">Daily dose gap over the last 30 days.</p>
                 <div id="chart-dose-interval-rolling" class="chart-shell">
                     <p class="chart-empty">Loading chart...</p>
                 </div>
