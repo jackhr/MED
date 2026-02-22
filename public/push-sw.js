@@ -1,3 +1,11 @@
+self.addEventListener("install", (event) => {
+  event.waitUntil(self.skipWaiting());
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(clients.claim());
+});
+
 self.addEventListener("push", (event) => {
   const fallbackPayload = {
     title: "Medicine reminder",
@@ -23,11 +31,30 @@ self.addEventListener("push", (event) => {
       }
     }
 
+    let subscriptionEndpoint = "";
     try {
-      const response = await fetch("/index.php?api=push_message", {
+      const subscription = await self.registration.pushManager.getSubscription();
+      if (subscription && typeof subscription.endpoint === "string") {
+        subscriptionEndpoint = subscription.endpoint;
+      }
+    } catch (error) {
+      // Session-based auth may still work without endpoint fallback.
+    }
+
+    try {
+      const params = new URLSearchParams();
+      params.set("api", "push_message");
+      if (subscriptionEndpoint !== "") {
+        params.set("endpoint", subscriptionEndpoint);
+      }
+
+      const response = await fetch(`/index.php?${params.toString()}`, {
         method: "GET",
         credentials: "include",
         cache: "no-store",
+        headers: {
+          Accept: "application/json",
+        },
       });
       if (!response.ok) {
         return payload;

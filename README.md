@@ -154,3 +154,4 @@ MED/
   - `APP_LOG_JSON_FILE` (JSON lines; default `logs/medicine.json`)
   - Fallback for write issues is system temp dir.
 - Every `api=process_reminders` request is also traced to `REMINDER_REQUEST_INFO_FILE` (JSON lines) for cron debugging.
+- Push notification content lookup (`api=push_message`) supports session auth and subscription-endpoint fallback for background service-worker requests.

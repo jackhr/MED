@@ -16,8 +16,8 @@ $perPage = 10;
 $allowedDosageUnits = ['mg', 'ml', 'g', 'mcg', 'tablet', 'drop'];
 
 Auth::startSession();
-if ($apiAction === 'process_reminders') {
-    // Cron calls can use a token on this endpoint without an active session.
+if (in_array($apiAction, ['process_reminders', 'push_message'], true)) {
+    // These API endpoints can be resolved without an active session.
 } elseif ($apiAction !== '') {
     Auth::requireAuthForApi();
 } else {
@@ -2458,6 +2458,41 @@ function loadLatestPushNotificationForUser(PDO $pdo, int $workspaceId, int $user
     return $defaultNotification;
 }
 
+function resolvePushNotificationTargetFromEndpoint(PDO $pdo, string $endpoint): ?array
+{
+    $cleanEndpoint = trim($endpoint);
+    if ($cleanEndpoint === '') {
+        return null;
+    }
+
+    $statement = $pdo->prepare(
+        'SELECT workspace_id, user_id
+         FROM push_subscriptions
+         WHERE endpoint_hash = :endpoint_hash
+           AND is_active = 1
+         ORDER BY updated_at DESC, id DESC
+         LIMIT 1'
+    );
+    $statement->execute([
+        ':endpoint_hash' => hash('sha256', $cleanEndpoint),
+    ]);
+    $row = $statement->fetch();
+    if (!is_array($row)) {
+        return null;
+    }
+
+    $workspaceId = (int) ($row['workspace_id'] ?? 0);
+    $userId = (int) ($row['user_id'] ?? 0);
+    if ($workspaceId <= 0 || $userId <= 0) {
+        return null;
+    }
+
+    return [
+        'workspace_id' => $workspaceId,
+        'user_id' => $userId,
+    ];
+}
+
 $dbError = null;
 try {
     $pdo = Database::connection();
@@ -2484,7 +2519,7 @@ if ($apiAction !== '') {
         $currentWorkspaceId = Auth::workspaceId();
         $currentWorkspaceRole = normalizeWorkspaceRole(Auth::workspaceRole());
 
-        if ($apiAction !== 'process_reminders' && $currentWorkspaceId === null) {
+        if (!in_array($apiAction, ['process_reminders', 'push_message'], true) && $currentWorkspaceId === null) {
             jsonResponse([
                 'ok' => false,
                 'error' => 'No active workspace is assigned to this session.',
@@ -2887,8 +2922,32 @@ if ($apiAction !== '') {
             exit;
         }
 
-        if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'push_message') {
-            if ($currentUserId === null) {
+        if (in_array($_SERVER['REQUEST_METHOD'], ['GET', 'POST'], true) && $apiAction === 'push_message') {
+            $targetWorkspaceId = $currentWorkspaceId;
+            $targetUserId = $currentUserId;
+            $authMode = 'session';
+
+            if ($targetUserId === null || $targetWorkspaceId === null) {
+                $payload = $_SERVER['REQUEST_METHOD'] === 'POST' ? requestPayload() : $_GET;
+                $endpoint = trim((string) ($payload['endpoint'] ?? ''));
+                if ($endpoint !== '') {
+                    $resolvedTarget = resolvePushNotificationTargetFromEndpoint($pdo, $endpoint);
+                    if (is_array($resolvedTarget)) {
+                        $targetWorkspaceId = (int) ($resolvedTarget['workspace_id'] ?? 0);
+                        $targetUserId = (int) ($resolvedTarget['user_id'] ?? 0);
+                        $authMode = 'subscription_endpoint';
+                    }
+                }
+            }
+
+            if ($targetUserId === null || $targetWorkspaceId === null || $targetWorkspaceId <= 0 || $targetUserId <= 0) {
+                logEvent('warning', 'push.message.unauthorized', [
+                    'api' => 'push_message',
+                    'method' => (string) ($_SERVER['REQUEST_METHOD'] ?? 'UNKNOWN'),
+                    'remote_ip' => requestIp(),
+                    'auth_mode' => $authMode,
+                    'has_session_user' => $currentUserId !== null,
+                ]);
                 jsonResponse([
                     'ok' => false,
                     'error' => 'Authentication required.',
@@ -2898,7 +2957,7 @@ if ($apiAction !== '') {
 
             jsonResponse([
                 'ok' => true,
-                'notification' => loadLatestPushNotificationForUser($pdo, $currentWorkspaceId, $currentUserId),
+                'notification' => loadLatestPushNotificationForUser($pdo, $targetWorkspaceId, $targetUserId),
             ]);
             exit;
         }

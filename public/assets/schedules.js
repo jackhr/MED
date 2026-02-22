@@ -64,6 +64,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentEditingScheduleId = null;
   let serviceWorkerRegistration = null;
   let currentPushSubscription = null;
+  const pushServiceWorkerVersion = "20260222-1";
 
   function applyReadOnlyMode() {
     if (canWrite) {
@@ -536,8 +537,11 @@ document.addEventListener("DOMContentLoaded", () => {
       return serviceWorkerRegistration;
     }
 
-    const serviceWorkerPath = new URL("push-sw.js", window.location.href).pathname;
-    await navigator.serviceWorker.register(serviceWorkerPath);
+    const serviceWorkerUrl = new URL("push-sw.js", window.location.href);
+    serviceWorkerUrl.searchParams.set("v", pushServiceWorkerVersion);
+    await navigator.serviceWorker.register(
+      `${serviceWorkerUrl.pathname}?${serviceWorkerUrl.searchParams.toString()}`
+    );
     serviceWorkerRegistration = await navigator.serviceWorker.ready;
 
     if (!serviceWorkerRegistration) {
