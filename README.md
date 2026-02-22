@@ -124,7 +124,9 @@ MED/
 7. Optional but recommended reminder logging config in `.env`:
    - `APP_LOG_ENABLED=1`
    - `APP_LOG_FILE=logs/medicine.log`
-   - `REMINDER_GRACE_SECONDS=90`
+   - `APP_LOG_JSON_FILE=logs/medicine.json`
+   - `REMINDER_REQUEST_INFO_ENABLED=1`
+   - `REMINDER_REQUEST_INFO_FILE=logs/process_reminders.info`
 8. Run locally:
    ```bash
    php -S localhost:8080 -t public
@@ -134,13 +136,21 @@ MED/
 ## Cron Reminders
 - Reminder processing endpoint:
   - `https://your-domain/index.php?api=process_reminders&token=YOUR_REMINDER_CRON_TOKEN`
+- Processing rule: each active schedule is dispatched at most once per day, after its scheduled time has passed.
 - cPanel cron command example:
   - `/usr/bin/curl -fsS "https://your-domain/index.php?api=process_reminders&token=YOUR_REMINDER_CRON_TOKEN" >/dev/null`
+- Header-based alternative (avoids URL token encoding issues):
+  - `/usr/bin/curl -fsS -H "X-Reminder-Token: YOUR_REMINDER_CRON_TOKEN" "https://your-domain/index.php?api=process_reminders" >/dev/null`
+- CLI alternative (recommended when WAF/ModSecurity blocks HTTP cron):
+  - `/usr/local/bin/ea-php99 /home/your_user/path/to/MED/scripts/process_reminders_cli.php >> /home/your_user/path/to/MED/logs/cron_process_reminders.out 2>&1`
 - Set a strong `REMINDER_CRON_TOKEN` in `.env`.
-- `REMINDER_GRACE_SECONDS` adds tolerance for late cron starts to avoid missed reminders.
 
 ## Notes
 - Schema/database defaults to `utf8mb4` for emoji-safe content.
 - Keep `DB_NAME` in `.env` aligned with the database selected in `sql/init.sql`.
 - All app pages require login except `login.php`.
-- Reminder + push logs are written to `APP_LOG_FILE` (default: `logs/medicine.log`, fallback: system temp dir).
+- Reminder + push logs are written to both:
+  - `APP_LOG_FILE` (line logs; default `logs/medicine.log`)
+  - `APP_LOG_JSON_FILE` (JSON lines; default `logs/medicine.json`)
+  - Fallback for write issues is system temp dir.
+- Every `api=process_reminders` request is also traced to `REMINDER_REQUEST_INFO_FILE` (JSON lines) for cron debugging.

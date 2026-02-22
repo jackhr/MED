@@ -183,24 +183,44 @@ function appLogEnabled(): bool
     return envFlag('APP_LOG_ENABLED', true);
 }
 
-function appLogPath(): string
+function resolveAppPath(string $configuredPath, string $defaultRelativePath): string
 {
-    $configuredPath = trim((string) (Env::get('APP_LOG_FILE', '') ?? ''));
-    if ($configuredPath === '') {
-        return dirname(__DIR__) . '/logs/medicine.log';
+    $normalizedConfiguredPath = trim($configuredPath);
+    if ($normalizedConfiguredPath === '') {
+        return dirname(__DIR__) . '/' . ltrim($defaultRelativePath, '/');
     }
 
-    if (str_starts_with($configuredPath, '/')) {
-        return $configuredPath;
+    if (str_starts_with($normalizedConfiguredPath, '/')) {
+        return $normalizedConfiguredPath;
     }
 
-    return dirname(__DIR__) . '/' . ltrim($configuredPath, '/');
+    return dirname(__DIR__) . '/' . ltrim($normalizedConfiguredPath, '/');
 }
 
-function appendLogLine(string $line): bool
+function appLogTextPath(): string
 {
-    $primaryPath = appLogPath();
-    $fallbackPath = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'medicine.log';
+    $configuredPath = (string) (Env::get('APP_LOG_FILE', '') ?? '');
+    return resolveAppPath($configuredPath, 'logs/medicine.log');
+}
+
+function appLogJsonPath(): string
+{
+    $configuredPath = (string) (Env::get('APP_LOG_JSON_FILE', '') ?? '');
+    if (trim($configuredPath) !== '') {
+        return resolveAppPath($configuredPath, 'logs/medicine.json');
+    }
+
+    $textPath = appLogTextPath();
+    if (str_ends_with($textPath, '.log')) {
+        return substr($textPath, 0, -4) . '.json';
+    }
+
+    return $textPath . '.json';
+}
+
+function appendToFileWithFallback(string $primaryPath, string $fallbackFileName, string $line): bool
+{
+    $fallbackPath = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $fallbackFileName;
     $paths = [$primaryPath, $fallbackPath];
 
     foreach ($paths as $path) {
@@ -220,6 +240,55 @@ function appendLogLine(string $line): bool
     }
 
     return false;
+}
+
+function appendLogLine(string $line): bool
+{
+    return appendToFileWithFallback(appLogTextPath(), 'medicine.log', $line);
+}
+
+function appendJsonLogLine(string $line): bool
+{
+    return appendToFileWithFallback(appLogJsonPath(), 'medicine.json', $line);
+}
+
+function reminderRequestProbeEnabled(): bool
+{
+    return envFlag('REMINDER_REQUEST_INFO_ENABLED', true);
+}
+
+function reminderRequestInfoPath(): string
+{
+    $configuredPath = (string) (Env::get('REMINDER_REQUEST_INFO_FILE', '') ?? '');
+    return resolveAppPath($configuredPath, 'logs/process_reminders.info');
+}
+
+function appendReminderRequestInfoLine(string $line): bool
+{
+    return appendToFileWithFallback(reminderRequestInfoPath(), 'process_reminders.info', $line);
+}
+
+function logReminderRequestProbe(string $phase, array $context = []): void
+{
+    if (!reminderRequestProbeEnabled()) {
+        return;
+    }
+
+    $timezoneName = Env::get('APP_TIMEZONE', 'UTC') ?? 'UTC';
+    $timezone = new DateTimeZone($timezoneName);
+    $record = [
+        'timestamp' => (new DateTimeImmutable('now', $timezone))->format(DateTimeInterface::ATOM),
+        'phase' => trim($phase) !== '' ? trim($phase) : 'received',
+        'context' => $context,
+    ];
+
+    $json = json_encode($record, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if (is_string($json)) {
+        appendReminderRequestInfoLine($json . PHP_EOL);
+        return;
+    }
+
+    appendReminderRequestInfoLine('{"timestamp":"unknown","phase":"encode_failure","context":{}}' . PHP_EOL);
 }
 
 function requestIp(): string
@@ -256,17 +325,37 @@ function logEvent(string $level, string $event, array $context = []): void
         'context' => $context,
     ];
 
-    $json = json_encode($record, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-    if (!is_string($json)) {
-        $json = sprintf(
-            '[%s] %s %s',
-            $timestamp,
-            strtoupper($record['level']),
-            (string) $record['event']
-        );
+    $contextJson = json_encode($record['context'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if (!is_string($contextJson)) {
+        $contextJson = '{}';
     }
 
-    appendLogLine($json . PHP_EOL);
+    $logLine = sprintf(
+        '[%s] %s %s context=%s',
+        $timestamp,
+        strtoupper((string) $record['level']),
+        (string) $record['event'],
+        $contextJson
+    );
+    appendLogLine($logLine . PHP_EOL);
+
+    $jsonLine = json_encode($record, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if (is_string($jsonLine)) {
+        appendJsonLogLine($jsonLine . PHP_EOL);
+    } else {
+        $fallbackRecord = [
+            'timestamp' => $timestamp,
+            'level' => (string) $record['level'],
+            'event' => (string) $record['event'],
+            'context' => new stdClass(),
+        ];
+        $fallbackJson = json_encode($fallbackRecord, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if (is_string($fallbackJson)) {
+            appendJsonLogLine($fallbackJson . PHP_EOL);
+        } else {
+            appendJsonLogLine('{"timestamp":"unknown","level":"error","event":"log.encode_failure","context":{}}' . PHP_EOL);
+        }
+    }
 }
 
 function requestPayload(): array
@@ -696,7 +785,7 @@ function loadEntriesPage(PDO $pdo, int $workspaceId, int $page, int $perPage, ar
          FROM medicine_intake_logs l
          INNER JOIN medicines m ON m.id = l.medicine_id
                               AND m.workspace_id = l.workspace_id'
-        . $whereSql
+            . $whereSql
     );
     bindSqlValues($countStatement, $bindings);
     $countStatement->execute();
@@ -2095,14 +2184,15 @@ function processDueReminders(PDO $pdo, ?int $workspaceId = null, ?int $userId = 
     $timezoneName = Env::get('APP_TIMEZONE', 'UTC') ?? 'UTC';
     $timezone = new DateTimeZone($timezoneName);
     $now = new DateTimeImmutable('now', $timezone);
-    $windowMinutesRaw = (int) (Env::get('REMINDER_WINDOW_MINUTES', '5') ?? 5);
-    $windowMinutes = max(1, min(30, $windowMinutesRaw));
-    $graceSecondsRaw = (int) (Env::get('REMINDER_GRACE_SECONDS', '90') ?? 90);
-    $graceSeconds = max(0, min(300, $graceSecondsRaw));
-    $windowStart = $now->sub(new DateInterval('PT' . $windowMinutes . 'M'));
-    if ($graceSeconds > 0) {
-        $windowStart = $windowStart->sub(new DateInterval('PT' . $graceSeconds . 'S'));
+    $todayStart = DateTimeImmutable::createFromFormat(
+        'Y-m-d H:i:s',
+        $now->format('Y-m-d') . ' 00:00:00',
+        $timezone
+    );
+    if (!$todayStart instanceof DateTimeImmutable) {
+        $todayStart = $now->setTime(0, 0, 0);
     }
+    $tomorrowStart = $todayStart->add(new DateInterval('P1D'));
 
     $query = 'SELECT s.id,
                      s.workspace_id,
@@ -2135,10 +2225,40 @@ function processDueReminders(PDO $pdo, ?int $workspaceId = null, ?int $userId = 
     $scheduleStatement->execute($params);
     $schedules = $scheduleStatement->fetchAll();
 
+    $dispatchedTodayQuery = 'SELECT DISTINCT d.schedule_id
+                             FROM reminder_dispatches d
+                             INNER JOIN dose_schedules s ON s.id = d.schedule_id
+                             WHERE d.scheduled_for >= :today_start
+                               AND d.scheduled_for < :tomorrow_start';
+    $dispatchedTodayParams = [
+        ':today_start' => $todayStart->format('Y-m-d H:i:s'),
+        ':tomorrow_start' => $tomorrowStart->format('Y-m-d H:i:s'),
+    ];
+    if ($workspaceId !== null && $workspaceId > 0) {
+        $dispatchedTodayQuery .= ' AND s.workspace_id = :workspace_id';
+        $dispatchedTodayParams[':workspace_id'] = $workspaceId;
+    }
+    if ($userId !== null) {
+        $dispatchedTodayQuery .= ' AND s.user_id = :user_id';
+        $dispatchedTodayParams[':user_id'] = $userId;
+    }
+    $dispatchedTodayStatement = $pdo->prepare($dispatchedTodayQuery);
+    $dispatchedTodayStatement->execute($dispatchedTodayParams);
+    $dispatchedTodayRows = $dispatchedTodayStatement->fetchAll();
+    $dispatchedTodayMap = [];
+    foreach ($dispatchedTodayRows as $row) {
+        $existingScheduleId = (int) ($row['schedule_id'] ?? 0);
+        if ($existingScheduleId > 0) {
+            $dispatchedTodayMap[$existingScheduleId] = true;
+        }
+    }
+
     $processed = 0;
     $due = 0;
     $sent = 0;
     $skipped = 0;
+    $skippedNotDueYet = 0;
+    $skippedAlreadyDispatchedToday = 0;
     $pushAttempted = 0;
     $pushFailed = 0;
     $pushDeactivated = 0;
@@ -2147,21 +2267,33 @@ function processDueReminders(PDO $pdo, ?int $workspaceId = null, ?int $userId = 
     logEvent('info', 'reminders.process.started', array_merge($sourceContext, [
         'workspace_scope' => $workspaceId,
         'user_scope' => $userId,
-        'window_minutes' => $windowMinutes,
-        'grace_seconds' => $graceSeconds,
+        'today' => $now->format('Y-m-d'),
         'schedule_count' => count($schedules),
+        'already_dispatched_today_count' => count($dispatchedTodayMap),
         'now' => $now->format(DateTimeInterface::ATOM),
     ]));
 
     foreach ($schedules as $schedule) {
         $processed += 1;
+        $scheduleId = (int) ($schedule['id'] ?? 0);
+        if ($scheduleId <= 0) {
+            $skipped += 1;
+            continue;
+        }
+
+        if (isset($dispatchedTodayMap[$scheduleId])) {
+            $skipped += 1;
+            $skippedAlreadyDispatchedToday += 1;
+            continue;
+        }
+
         $scheduleTime = substr((string) ($schedule['time_of_day'] ?? '00:00:00'), 0, 5);
-        $scheduledFor = DateTimeImmutable::createFromFormat(
+        $scheduledForToday = DateTimeImmutable::createFromFormat(
             'Y-m-d H:i',
             $now->format('Y-m-d') . ' ' . $scheduleTime,
             $timezone
         );
-        if (!$scheduledFor instanceof DateTimeImmutable) {
+        if (!$scheduledForToday instanceof DateTimeImmutable) {
             $skipped += 1;
             logEvent('warning', 'reminders.schedule.invalid_time', array_merge($sourceContext, [
                 'schedule_id' => (int) ($schedule['id'] ?? 0),
@@ -2170,12 +2302,13 @@ function processDueReminders(PDO $pdo, ?int $workspaceId = null, ?int $userId = 
             continue;
         }
 
-        if ($scheduledFor < $windowStart || $scheduledFor > $now) {
+        if ($scheduledForToday > $now) {
             $skipped += 1;
+            $skippedNotDueYet += 1;
             continue;
         }
 
-        $scheduledForDb = $scheduledFor->format('Y-m-d H:i:s');
+        $scheduledForDb = $scheduledForToday->format('Y-m-d H:i:s');
         $dispatchId = null;
 
         try {
@@ -2184,17 +2317,19 @@ function processDueReminders(PDO $pdo, ?int $workspaceId = null, ?int $userId = 
                  VALUES (:schedule_id, :scheduled_for, :status)'
             );
             $insertStatement->execute([
-                ':schedule_id' => (int) $schedule['id'],
+                ':schedule_id' => $scheduleId,
                 ':scheduled_for' => $scheduledForDb,
                 ':status' => 'pending',
             ]);
             $dispatchId = (int) $pdo->lastInsertId();
             $due += 1;
         } catch (Throwable $exception) {
-            // Unique index prevents duplicate sends for the same schedule occurrence.
+            // Concurrent runs may attempt the same schedule in the same minute.
             $skipped += 1;
+            $skippedAlreadyDispatchedToday += 1;
+            $dispatchedTodayMap[$scheduleId] = true;
             logEvent('info', 'reminders.schedule.duplicate_or_insert_error', array_merge($sourceContext, [
-                'schedule_id' => (int) ($schedule['id'] ?? 0),
+                'schedule_id' => $scheduleId,
                 'scheduled_for' => $scheduledForDb,
                 'message' => substr($exception->getMessage(), 0, 220),
             ]));
@@ -2207,9 +2342,9 @@ function processDueReminders(PDO $pdo, ?int $workspaceId = null, ?int $userId = 
             (int) $schedule['user_id'],
             'schedule',
             [
-            'schedule_id' => (int) ($schedule['id'] ?? 0),
-            'scheduled_for' => $scheduledForDb,
-            'medicine_id' => (int) ($schedule['medicine_id'] ?? 0),
+                'schedule_id' => $scheduleId,
+                'scheduled_for' => $scheduledForDb,
+                'medicine_id' => (int) ($schedule['medicine_id'] ?? 0),
             ]
         );
         $sent += (int) ($dispatchResult['sent'] ?? 0);
@@ -2239,9 +2374,11 @@ function processDueReminders(PDO $pdo, ?int $workspaceId = null, ?int $userId = 
             ]);
         }
 
+        $dispatchedTodayMap[$scheduleId] = true;
+
         if ($status !== 'sent') {
             logEvent('warning', 'reminders.schedule.dispatch_not_sent', array_merge($sourceContext, [
-                'schedule_id' => (int) ($schedule['id'] ?? 0),
+                'schedule_id' => $scheduleId,
                 'scheduled_for' => $scheduledForDb,
                 'dispatch' => [
                     'attempted' => (int) ($dispatchResult['attempted'] ?? 0),
@@ -2258,8 +2395,9 @@ function processDueReminders(PDO $pdo, ?int $workspaceId = null, ?int $userId = 
         'due' => $due,
         'sent' => $sent,
         'skipped' => $skipped,
-        'window_minutes' => $windowMinutes,
-        'grace_seconds' => $graceSeconds,
+        'today' => $now->format('Y-m-d'),
+        'skipped_not_due_yet' => $skippedNotDueYet,
+        'skipped_already_dispatched_today' => $skippedAlreadyDispatchedToday,
         'push_attempted' => $pushAttempted,
         'push_failed' => $pushFailed,
         'push_deactivated' => $pushDeactivated,
@@ -2283,10 +2421,10 @@ function loadLatestPushNotificationForUser(PDO $pdo, int $workspaceId, int $user
         'url' => '/index.php',
     ];
 
-    $windowMinutesRaw = (int) (Env::get('REMINDER_WINDOW_MINUTES', '5') ?? 5);
-    $windowMinutes = max(1, min(30, $windowMinutesRaw));
-    $threshold = (new DateTimeImmutable('now'))
-        ->sub(new DateInterval('PT' . $windowMinutes . 'M'))
+    $timezoneName = Env::get('APP_TIMEZONE', 'UTC') ?? 'UTC';
+    $timezone = new DateTimeZone($timezoneName);
+    $threshold = (new DateTimeImmutable('now', $timezone))
+        ->setTime(0, 0, 0)
         ->format('Y-m-d H:i:s');
 
     $statement = $pdo->prepare(
@@ -2771,23 +2909,58 @@ if ($apiAction !== '') {
         ) {
             $expectedToken = trim((string) (Env::get('REMINDER_CRON_TOKEN', '') ?? ''));
             $providedToken = trim((string) ($_GET['token'] ?? $_POST['token'] ?? ''));
+            $tokenSource = $providedToken !== '' ? 'query_or_body' : 'none';
+
+            if ($providedToken === '') {
+                $headerToken = trim((string) ($_SERVER['HTTP_X_REMINDER_TOKEN'] ?? ''));
+                if ($headerToken !== '') {
+                    $providedToken = $headerToken;
+                    $tokenSource = 'x_reminder_token';
+                }
+            }
+
+            if ($providedToken === '') {
+                $authorizationHeader = trim((string) ($_SERVER['HTTP_AUTHORIZATION'] ?? ''));
+                if (preg_match('/^Bearer\s+(.+)$/i', $authorizationHeader, $matches) === 1) {
+                    $providedToken = trim((string) ($matches[1] ?? ''));
+                    if ($providedToken !== '') {
+                        $tokenSource = 'authorization_bearer';
+                    }
+                }
+            }
+
             $isCronAuthorized = $expectedToken !== ''
                 && $providedToken !== ''
                 && hash_equals($expectedToken, $providedToken);
 
+            $queryParamKeys = array_keys($_GET);
+            $queryParamKeys = array_values(array_filter($queryParamKeys, static fn($key): bool => $key !== 'token'));
+            $tokenLength = strlen($providedToken);
             $requestContext = [
                 'api' => 'process_reminders',
                 'method' => (string) ($_SERVER['REQUEST_METHOD'] ?? 'UNKNOWN'),
                 'remote_ip' => requestIp(),
                 'user_agent' => substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 220),
                 'auth_mode' => $isCronAuthorized ? 'cron_token' : 'session',
+                'token_source' => $tokenSource,
+                'token_length' => $tokenLength,
                 'workspace_id' => $currentWorkspaceId,
                 'workspace_role' => $currentWorkspaceRole,
                 'user_id' => $currentUserId,
             ];
+            logReminderRequestProbe('request_received', array_merge($requestContext, [
+                'query_param_keys' => $queryParamKeys,
+                'has_query_or_body_token' => $tokenSource === 'query_or_body',
+                'has_header_token' => $tokenSource === 'x_reminder_token',
+                'has_bearer_token' => $tokenSource === 'authorization_bearer',
+            ]));
 
             if (!$isCronAuthorized && $currentUserId === null) {
                 logEvent('warning', 'reminders.process.unauthorized', $requestContext);
+                logReminderRequestProbe('request_rejected', array_merge($requestContext, [
+                    'reason' => 'unauthorized',
+                    'status' => 401,
+                ]));
                 jsonResponse([
                     'ok' => false,
                     'error' => 'Authentication required.',
@@ -2797,6 +2970,10 @@ if ($apiAction !== '') {
 
             if (!$isCronAuthorized && !workspaceCanWrite($currentWorkspaceRole)) {
                 logEvent('warning', 'reminders.process.forbidden', $requestContext);
+                logReminderRequestProbe('request_rejected', array_merge($requestContext, [
+                    'reason' => 'forbidden',
+                    'status' => 403,
+                ]));
                 jsonResponse([
                     'ok' => false,
                     'error' => 'Read-only access. Reminder processing requires editor permissions.',
@@ -2811,6 +2988,19 @@ if ($apiAction !== '') {
                 $isCronAuthorized ? null : $currentUserId,
                 $requestContext
             );
+            logReminderRequestProbe('request_completed', array_merge($requestContext, [
+                'status' => 200,
+                'result' => [
+                    'processed' => (int) ($result['processed'] ?? 0),
+                    'due' => (int) ($result['due'] ?? 0),
+                    'sent' => (int) ($result['sent'] ?? 0),
+                    'skipped' => (int) ($result['skipped'] ?? 0),
+                    'push_attempted' => (int) ($result['push_attempted'] ?? 0),
+                    'push_failed' => (int) ($result['push_failed'] ?? 0),
+                    'push_deactivated' => (int) ($result['push_deactivated'] ?? 0),
+                    'failure_count' => (int) ($result['failure_count'] ?? 0),
+                ],
+            ]));
             jsonResponse([
                 'ok' => true,
                 'result' => $result,
@@ -3275,6 +3465,7 @@ $entryTableColumnCount = $canWriteWorkspaceData ? 7 : 6;
 ?>
 <!doctype html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -3295,6 +3486,7 @@ $entryTableColumnCount = $canWriteWorkspaceData ? 7 : 6;
     <script src="assets/min/nav.js" defer></script>
     <script src="assets/min/app.js" defer></script>
 </head>
+
 <body data-db-ready="<?= $dbReady ? '1' : '0' ?>">
     <main class="dashboard">
         <nav class="hamburger-nav" aria-label="Primary Navigation">
@@ -3302,8 +3494,7 @@ $entryTableColumnCount = $canWriteWorkspaceData ? 7 : 6;
                 type="button"
                 class="ghost-btn hamburger-toggle"
                 aria-expanded="false"
-                aria-controls="primary-menu"
-            >
+                aria-controls="primary-menu">
                 <span class="hamburger-icon" aria-hidden="true"></span>
                 Menu
             </button>
@@ -3362,8 +3553,7 @@ $entryTableColumnCount = $canWriteWorkspaceData ? 7 : 6;
                                 <button
                                     id="open-create-modal-btn"
                                     type="button"
-                                    class="primary-btn add-intake-btn"
-                                >
+                                    class="primary-btn add-intake-btn">
                                     Add Intake
                                 </button>
                             <?php endif; ?>
@@ -3372,8 +3562,7 @@ $entryTableColumnCount = $canWriteWorkspaceData ? 7 : 6;
                                 type="button"
                                 class="ghost-btn history-toggle-btn"
                                 aria-controls="history-tools-panel"
-                                aria-expanded="false"
-                            >
+                                aria-expanded="false">
                                 Show Filters
                             </button>
                             <button
@@ -3381,8 +3570,7 @@ $entryTableColumnCount = $canWriteWorkspaceData ? 7 : 6;
                                 type="button"
                                 class="ghost-btn history-toggle-btn"
                                 aria-controls="data-tools-panel"
-                                aria-expanded="false"
-                            >
+                                aria-expanded="false">
                                 Show Data Tools
                             </button>
                         </div>
@@ -3609,4 +3797,5 @@ $entryTableColumnCount = $canWriteWorkspaceData ? 7 : 6;
         </div>
     </noscript>
 </body>
+
 </html>
