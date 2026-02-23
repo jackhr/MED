@@ -7,6 +7,8 @@ PHP + MySQL web app for tracking medicine intake, trends, schedules, and reminde
 - Workspace-scoped data with role-based membership (`workspaces`, `workspace_users`)
 - Owner/editor/viewer permissions with read-only UI + API enforcement for viewers
 - Dashboard with async entry create/edit/delete flows
+- Dashboard streak metrics (current streak + best streak by consecutive intake days)
+- Dashboard total entries metric + mobile-collapsible metric panel
 - Grouped day history with pagination, filters, and search
 - Medicine management (`medicines`) with quick select or add-new
 - Numeric dosage + unit (`mg`, `ml`, etc.)

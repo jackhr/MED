@@ -1067,9 +1067,91 @@ function downloadBackupSql(PDO $pdo, int $workspaceId): void
     echo implode("\n", $lines);
 }
 
+function calculateIntakeStreaks(array $intakeDates): array
+{
+    if ($intakeDates === []) {
+        return [
+            'current_streak_days' => 0,
+            'longest_streak_days' => 0,
+        ];
+    }
+
+    $dayNumbers = [];
+    foreach ($intakeDates as $dateText) {
+        $date = DateTimeImmutable::createFromFormat('Y-m-d|', (string) $dateText);
+        if (!$date instanceof DateTimeImmutable) {
+            continue;
+        }
+
+        $dayNumbers[] = (int) floor($date->getTimestamp() / 86400);
+    }
+
+    if ($dayNumbers === []) {
+        return [
+            'current_streak_days' => 0,
+            'longest_streak_days' => 0,
+        ];
+    }
+
+    $dayNumbers = array_values(array_unique($dayNumbers));
+    rsort($dayNumbers, SORT_NUMERIC);
+
+    $longestStreak = 1;
+    $currentRun = 1;
+    $previousDay = $dayNumbers[0];
+    $count = count($dayNumbers);
+    for ($index = 1; $index < $count; $index += 1) {
+        $day = $dayNumbers[$index];
+        if (($previousDay - $day) === 1) {
+            $currentRun += 1;
+        } else {
+            $currentRun = 1;
+        }
+
+        if ($currentRun > $longestStreak) {
+            $longestStreak = $currentRun;
+        }
+
+        $previousDay = $day;
+    }
+
+    $today = new DateTimeImmutable('today');
+    $todayDayNumber = (int) floor($today->getTimestamp() / 86400);
+    $latestIntakeDayNumber = $dayNumbers[0];
+    $daysSinceLatest = $todayDayNumber - $latestIntakeDayNumber;
+
+    $currentStreak = 0;
+    if ($daysSinceLatest >= 0 && $daysSinceLatest <= 1) {
+        $currentStreak = 1;
+        $previousDay = $latestIntakeDayNumber;
+        for ($index = 1; $index < $count; $index += 1) {
+            $day = $dayNumbers[$index];
+            if (($previousDay - $day) !== 1) {
+                break;
+            }
+
+            $currentStreak += 1;
+            $previousDay = $day;
+        }
+    }
+
+    return [
+        'current_streak_days' => $currentStreak,
+        'longest_streak_days' => $longestStreak,
+    ];
+}
+
 function loadMetrics(PDO $pdo, int $workspaceId): array
 {
     $workspaceIdSql = max(1, $workspaceId);
+
+    $totalEntriesStatement = $pdo->prepare(
+        'SELECT COUNT(*)
+         FROM medicine_intake_logs
+         WHERE workspace_id = :workspace_id'
+    );
+    $totalEntriesStatement->execute([':workspace_id' => $workspaceIdSql]);
+    $totalEntries = (int) $totalEntriesStatement->fetchColumn();
 
     $entriesTodayStatement = $pdo->prepare(
         'SELECT COUNT(*)
@@ -1099,10 +1181,30 @@ function loadMetrics(PDO $pdo, int $workspaceId): array
     $avgRatingThisWeekRaw = $avgRatingThisWeekStatement->fetchColumn();
     $avgRatingThisWeek = $avgRatingThisWeekRaw !== null ? round((float) $avgRatingThisWeekRaw, 2) : null;
 
+    $streakDatesStatement = $pdo->prepare(
+        'SELECT DISTINCT DATE(taken_at) AS intake_date
+         FROM medicine_intake_logs
+         WHERE workspace_id = :workspace_id
+         ORDER BY intake_date DESC'
+    );
+    $streakDatesStatement->execute([':workspace_id' => $workspaceIdSql]);
+    $streakDateRows = $streakDatesStatement->fetchAll();
+    $streakDates = [];
+    foreach ($streakDateRows as $row) {
+        $dateText = trim((string) ($row['intake_date'] ?? ''));
+        if ($dateText !== '') {
+            $streakDates[] = $dateText;
+        }
+    }
+    $streaks = calculateIntakeStreaks($streakDates);
+
     return [
+        'total_entries' => $totalEntries,
         'entries_today' => $entriesToday,
         'entries_this_week' => $entriesThisWeek,
         'average_rating_this_week' => $avgRatingThisWeek,
+        'current_streak_days' => (int) ($streaks['current_streak_days'] ?? 0),
+        'longest_streak_days' => (int) ($streaks['longest_streak_days'] ?? 0),
     ];
 }
 
@@ -3587,20 +3689,43 @@ $entryTableColumnCount = $canWriteWorkspaceData ? 7 : 6;
 
         <div id="status-banner" class="alert" hidden></div>
 
-        <section class="metrics-grid" aria-label="Dashboard Metrics">
-            <article class="metric-card">
-                <p class="metric-label">Entries Today</p>
-                <p id="metric-today" class="metric-value">--</p>
-            </article>
-            <article class="metric-card">
-                <p class="metric-label">Entries This Week</p>
-                <p id="metric-week" class="metric-value">--</p>
-            </article>
-            <article class="metric-card">
-                <p class="metric-label">Avg Rating This Week</p>
-                <p id="metric-rating-week" class="metric-value">--</p>
-            </article>
-        </section>
+        <div class="metrics-collapsible">
+            <button
+                id="metrics-toggle-btn"
+                type="button"
+                class="ghost-btn metrics-toggle-btn"
+                aria-controls="metrics-grid"
+                aria-expanded="false"
+                hidden>
+                Show Metrics
+            </button>
+            <section id="metrics-grid" class="metrics-grid" aria-label="Dashboard Metrics">
+                <article class="metric-card">
+                    <p class="metric-label">Entries Today</p>
+                    <p id="metric-today" class="metric-value">--</p>
+                </article>
+                <article class="metric-card">
+                    <p class="metric-label">Entries This Week</p>
+                    <p id="metric-week" class="metric-value">--</p>
+                </article>
+                <article class="metric-card">
+                    <p class="metric-label">Avg Rating This Week</p>
+                    <p id="metric-rating-week" class="metric-value">--</p>
+                </article>
+                <article class="metric-card">
+                    <p class="metric-label">Current Streak</p>
+                    <p id="metric-current-streak" class="metric-value">--</p>
+                </article>
+                <article class="metric-card">
+                    <p class="metric-label">Best Streak</p>
+                    <p id="metric-longest-streak" class="metric-value">--</p>
+                </article>
+                <article class="metric-card">
+                    <p class="metric-label">Total Entries</p>
+                    <p id="metric-total-entries" class="metric-value">--</p>
+                </article>
+            </section>
+        </div>
 
         <section class="workspace-grid">
             <article class="card">

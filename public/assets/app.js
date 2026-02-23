@@ -11,6 +11,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const metricToday = document.getElementById("metric-today");
   const metricWeek = document.getElementById("metric-week");
   const metricRatingWeek = document.getElementById("metric-rating-week");
+  const metricCurrentStreak = document.getElementById("metric-current-streak");
+  const metricLongestStreak = document.getElementById("metric-longest-streak");
+  const metricTotalEntries = document.getElementById("metric-total-entries");
+  const metricsGrid = document.getElementById("metrics-grid");
+  const metricsToggleButton = document.getElementById("metrics-toggle-btn");
+  const metricsMobileMedia = window.matchMedia("(max-width: 648px)");
 
   const createForm = document.getElementById("create-intake-form");
   const createSubmitButton = createForm?.querySelector("button[type='submit']");
@@ -143,6 +149,45 @@ document.addEventListener("DOMContentLoaded", () => {
     if (runRemindersButton) {
       runRemindersButton.disabled = true;
     }
+  }
+
+  let metricsCollapsedOnMobile = true;
+
+  function applyMetricsCollapseState() {
+    if (!metricsGrid || !metricsToggleButton) {
+      return;
+    }
+
+    if (!metricsMobileMedia.matches) {
+      metricsToggleButton.hidden = true;
+      metricsToggleButton.setAttribute("aria-expanded", "true");
+      metricsGrid.hidden = false;
+      return;
+    }
+
+    metricsToggleButton.hidden = false;
+    metricsGrid.hidden = metricsCollapsedOnMobile;
+    metricsToggleButton.setAttribute("aria-expanded", metricsCollapsedOnMobile ? "false" : "true");
+    metricsToggleButton.textContent = metricsCollapsedOnMobile ? "Show Metrics" : "Hide Metrics";
+  }
+
+  function setupMetricsCollapseToggle() {
+    if (!metricsGrid || !metricsToggleButton) {
+      return;
+    }
+
+    metricsToggleButton.addEventListener("click", () => {
+      metricsCollapsedOnMobile = !metricsCollapsedOnMobile;
+      applyMetricsCollapseState();
+    });
+
+    if (typeof metricsMobileMedia.addEventListener === "function") {
+      metricsMobileMedia.addEventListener("change", applyMetricsCollapseState);
+    } else if (typeof metricsMobileMedia.addListener === "function") {
+      metricsMobileMedia.addListener(applyMetricsCollapseState);
+    }
+
+    applyMetricsCollapseState();
   }
 
   function buildApiUrl(action, params = {}) {
@@ -1330,12 +1375,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
   async function loadMetrics() {
     const payload = await apiRequest("dashboard");
+    if (metricTotalEntries) {
+      metricTotalEntries.textContent = String(payload.metrics.total_entries || 0);
+    }
     metricToday.textContent = String(payload.metrics.entries_today);
     metricWeek.textContent = String(payload.metrics.entries_this_week);
     if (metricRatingWeek) {
       metricRatingWeek.textContent = formatAverageRating(
         payload.metrics.average_rating_this_week
       );
+    }
+    if (metricCurrentStreak) {
+      metricCurrentStreak.textContent = `${Number(payload.metrics.current_streak_days || 0)} day${
+        Number(payload.metrics.current_streak_days || 0) === 1 ? "" : "s"
+      }`;
+    }
+    if (metricLongestStreak) {
+      metricLongestStreak.textContent = `${Number(payload.metrics.longest_streak_days || 0)} day${
+        Number(payload.metrics.longest_streak_days || 0) === 1 ? "" : "s"
+      }`;
     }
   }
 
@@ -1521,6 +1579,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   applyReadOnlyMode();
+  setupMetricsCollapseToggle();
   if (!canWrite) {
     showStatus("Read-only access enabled for this workspace.");
   }

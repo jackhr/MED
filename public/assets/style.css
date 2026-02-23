@@ -227,6 +227,23 @@ body.modal-open {
     gap                  : 0.85rem;
 }
 
+.metrics-grid[hidden] {
+    display: none !important;
+}
+
+.metrics-collapsible {
+    display: grid;
+    gap    : 0.65rem;
+}
+
+.metrics-toggle-btn {
+    justify-self: start;
+}
+
+.metrics-toggle-btn[hidden] {
+    display: none !important;
+}
+
 .trends-metrics {
     grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -1234,5 +1251,11 @@ th:first-child {
 
     .card {
         padding: 0.85rem;
+    }
+}
+
+@media (max-width: 648px) {
+    .metrics-collapsible {
+        gap: 0.55rem;
     }
 }
