@@ -11,6 +11,9 @@ PHP + MySQL web app for tracking medicine intake, trends, schedules, and reminde
 - Dashboard total entries metric + mobile-collapsible metric panel
 - Grouped day history with pagination, filters, and search
 - Medicine management (`medicines`) with quick select or add-new
+- Inventory management (`medicine_inventory`) with stock thresholds and adjustment history
+- Automatic inventory consumption tied to intake create/update/delete
+- Low-stock push alerts when tracked inventory reaches its threshold
 - Numeric dosage + unit (`mg`, `ml`, etc.)
 - Interactive 1-5 star ratings
 - Trends page with charts/tables, including:
@@ -30,6 +33,7 @@ PHP + MySQL web app for tracking medicine intake, trends, schedules, and reminde
 - `public/index.php` (dashboard + API endpoint)
 - `public/trends.php`
 - `public/calendar.php`
+- `public/inventory.php`
 - `public/schedules.php`
 - `public/settings.php`
 - `public/logout.php`
@@ -41,6 +45,7 @@ MED/
     assets/
       app.js
       calendar.js
+      inventory.js
       nav.js
       schedules.js
       settings.js
@@ -68,6 +73,9 @@ MED/
       20260216_add_profile_fields_to_app_users.sql
       20260216_add_reminder_message_to_dose_schedules.sql
       20260218_add_workspaces_and_memberships.sql
+      20260223_add_medicine_inventory.sql
+      20260301_add_inventory_automation_and_push_messages.sql
+      20260301_recalculate_inventory_remaining_stock.sql
   scripts/
     generate_vapid_keys.php
     seed_fake_users.php
@@ -97,6 +105,9 @@ MED/
    mysql -u root -p medicine_log < sql/migrations/20260216_add_profile_fields_to_app_users.sql
    mysql -u root -p medicine_log < sql/migrations/20260216_add_reminder_message_to_dose_schedules.sql
    mysql -u root -p medicine_log < sql/migrations/20260218_add_workspaces_and_memberships.sql
+   mysql -u root -p medicine_log < sql/migrations/20260223_add_medicine_inventory.sql
+   mysql -u root -p medicine_log < sql/migrations/20260301_add_inventory_automation_and_push_messages.sql
+   mysql -u root -p medicine_log < sql/migrations/20260301_recalculate_inventory_remaining_stock.sql
    ```
 4. Create your first login user:
    ```bash
@@ -151,6 +162,12 @@ MED/
 - Schema/database defaults to `utf8mb4` for emoji-safe content.
 - Keep `DB_NAME` in `.env` aligned with the database selected in `sql/init.sql`.
 - All app pages require login except `login.php`.
+- Inventory behavior:
+  - The first inventory save records the starting stock for that medicine.
+  - New intake entries automatically deduct from remaining tracked inventory when units match.
+  - Editing or deleting a tracked intake restores/recalculates inventory automatically.
+  - Positive restocks reset the current cycle's starting stock to the new remaining total.
+  - Existing installs can backfill historical deductions with `sql/migrations/20260301_recalculate_inventory_remaining_stock.sql`.
 - Reminder + push logs are written to both:
   - `APP_LOG_FILE` (line logs; default `logs/medicine.log`)
   - `APP_LOG_JSON_FILE` (JSON lines; default `logs/medicine.json`)
