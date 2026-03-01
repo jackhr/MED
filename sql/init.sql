@@ -5,8 +5,12 @@ CREATE DATABASE medicine_log
 USE medicine_log;
 
 DROP TABLE reminder_dispatches;
+DROP TABLE push_messages;
 DROP TABLE push_subscriptions;
 DROP TABLE dose_schedules;
+DROP TABLE medicine_inventory_consumptions;
+DROP TABLE medicine_inventory_adjustments;
+DROP TABLE medicine_inventory;
 DROP TABLE medicine_intake_logs;
 DROP TABLE workspace_users;
 DROP TABLE medicines;
@@ -70,6 +74,69 @@ CREATE TABLE medicines (
     INDEX idx_medicines_workspace_id (workspace_id)
 ) ENGINE=InnoDB;
 
+CREATE TABLE medicine_inventory (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    workspace_id INT UNSIGNED NOT NULL,
+    medicine_id INT UNSIGNED NOT NULL,
+    initial_stock_on_hand DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    stock_on_hand DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    unit VARCHAR(20) NOT NULL DEFAULT 'mg',
+    low_stock_threshold DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    reorder_quantity DECIMAL(10,2) NULL,
+    last_restocked_at DATETIME NULL,
+    low_stock_notified_at DATETIME NULL,
+    updated_by_user_id INT UNSIGNED NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_inventory_workspace_medicine (workspace_id, medicine_id),
+    INDEX idx_inventory_workspace_stock (workspace_id, stock_on_hand),
+    INDEX idx_inventory_workspace_threshold (workspace_id, low_stock_threshold),
+    CONSTRAINT fk_inventory_workspace
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    CONSTRAINT fk_inventory_medicine
+        FOREIGN KEY (medicine_id) REFERENCES medicines(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    CONSTRAINT fk_inventory_updated_by_user
+        FOREIGN KEY (updated_by_user_id) REFERENCES app_users(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE medicine_inventory_adjustments (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    workspace_id INT UNSIGNED NOT NULL,
+    inventory_id INT UNSIGNED NOT NULL,
+    medicine_id INT UNSIGNED NOT NULL,
+    changed_by_user_id INT UNSIGNED NULL,
+    change_amount DECIMAL(10,2) NOT NULL,
+    resulting_stock DECIMAL(10,2) NOT NULL,
+    unit VARCHAR(20) NOT NULL DEFAULT 'mg',
+    reason VARCHAR(32) NOT NULL DEFAULT 'manual_adjustment',
+    note VARCHAR(255) NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_inventory_adjustments_workspace_created (workspace_id, created_at),
+    INDEX idx_inventory_adjustments_inventory_created (inventory_id, created_at),
+    CONSTRAINT fk_inventory_adjustments_workspace
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    CONSTRAINT fk_inventory_adjustments_inventory
+        FOREIGN KEY (inventory_id) REFERENCES medicine_inventory(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    CONSTRAINT fk_inventory_adjustments_medicine
+        FOREIGN KEY (medicine_id) REFERENCES medicines(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    CONSTRAINT fk_inventory_adjustments_user
+        FOREIGN KEY (changed_by_user_id) REFERENCES app_users(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL
+) ENGINE=InnoDB;
+
 CREATE TABLE medicine_intake_logs (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     workspace_id INT UNSIGNED NOT NULL,
@@ -98,6 +165,37 @@ CREATE TABLE medicine_intake_logs (
     INDEX idx_intake_logged_by_user_id (logged_by_user_id),
     INDEX idx_intake_workspace_taken_at (workspace_id, taken_at),
     INDEX idx_intake_workspace_medicine_id (workspace_id, medicine_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE medicine_inventory_consumptions (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    workspace_id INT UNSIGNED NOT NULL,
+    intake_log_id INT UNSIGNED NOT NULL,
+    inventory_id INT UNSIGNED NOT NULL,
+    medicine_id INT UNSIGNED NOT NULL,
+    dosage_value DECIMAL(10,2) NOT NULL,
+    dosage_unit VARCHAR(20) NOT NULL DEFAULT 'mg',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_inventory_consumptions_intake_log_id (intake_log_id),
+    INDEX idx_inventory_consumptions_workspace_inventory (workspace_id, inventory_id),
+    INDEX idx_inventory_consumptions_workspace_medicine (workspace_id, medicine_id),
+    CONSTRAINT fk_inventory_consumptions_workspace
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    CONSTRAINT fk_inventory_consumptions_intake_log
+        FOREIGN KEY (intake_log_id) REFERENCES medicine_intake_logs(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    CONSTRAINT fk_inventory_consumptions_inventory
+        FOREIGN KEY (inventory_id) REFERENCES medicine_inventory(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    CONSTRAINT fk_inventory_consumptions_medicine
+        FOREIGN KEY (medicine_id) REFERENCES medicines(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE dose_schedules (
@@ -149,6 +247,27 @@ CREATE TABLE push_subscriptions (
         ON UPDATE CASCADE
         ON DELETE CASCADE,
     CONSTRAINT fk_push_user
+        FOREIGN KEY (user_id) REFERENCES app_users(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE push_messages (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    workspace_id INT UNSIGNED NOT NULL,
+    user_id INT UNSIGNED NOT NULL,
+    source VARCHAR(40) NOT NULL DEFAULT 'manual',
+    title VARCHAR(120) NOT NULL,
+    body VARCHAR(255) NOT NULL,
+    url VARCHAR(255) NOT NULL DEFAULT '/index.php',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_push_messages_user_created (user_id, created_at),
+    INDEX idx_push_messages_workspace_created (workspace_id, created_at),
+    CONSTRAINT fk_push_messages_workspace
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
+        ON UPDATE CASCADE
+        ON DELETE CASCADE,
+    CONSTRAINT fk_push_messages_user
         FOREIGN KEY (user_id) REFERENCES app_users(id)
         ON UPDATE CASCADE
         ON DELETE CASCADE

@@ -958,11 +958,13 @@ function downloadBackupJson(PDO $pdo, int $workspaceId): void
         'SELECT id,
                 workspace_id,
                 medicine_id,
+                initial_stock_on_hand,
                 stock_on_hand,
                 unit,
                 low_stock_threshold,
                 reorder_quantity,
                 last_restocked_at,
+                low_stock_notified_at,
                 updated_by_user_id,
                 created_at,
                 updated_at
@@ -992,6 +994,23 @@ function downloadBackupJson(PDO $pdo, int $workspaceId): void
     $inventoryAdjustmentsStatement->execute([':workspace_id' => $workspaceIdSql]);
     $inventoryAdjustments = $inventoryAdjustmentsStatement->fetchAll();
 
+    $inventoryConsumptionsStatement = $pdo->prepare(
+        'SELECT id,
+                workspace_id,
+                intake_log_id,
+                inventory_id,
+                medicine_id,
+                dosage_value,
+                dosage_unit,
+                created_at,
+                updated_at
+         FROM medicine_inventory_consumptions
+         WHERE workspace_id = :workspace_id
+         ORDER BY id ASC'
+    );
+    $inventoryConsumptionsStatement->execute([':workspace_id' => $workspaceIdSql]);
+    $inventoryConsumptions = $inventoryConsumptionsStatement->fetchAll();
+
     $payload = [
         'generated_at' => date('c'),
         'workspace_id' => $workspaceIdSql,
@@ -1000,6 +1019,7 @@ function downloadBackupJson(PDO $pdo, int $workspaceId): void
             'medicine_intake_logs' => is_array($intakes) ? $intakes : [],
             'medicine_inventory' => is_array($inventoryRows) ? $inventoryRows : [],
             'medicine_inventory_adjustments' => is_array($inventoryAdjustments) ? $inventoryAdjustments : [],
+            'medicine_inventory_consumptions' => is_array($inventoryConsumptions) ? $inventoryConsumptions : [],
         ],
     ];
 
@@ -1053,11 +1073,13 @@ function downloadBackupSql(PDO $pdo, int $workspaceId): void
         'SELECT id,
                 workspace_id,
                 medicine_id,
+                initial_stock_on_hand,
                 stock_on_hand,
                 unit,
                 low_stock_threshold,
                 reorder_quantity,
                 last_restocked_at,
+                low_stock_notified_at,
                 updated_by_user_id,
                 created_at,
                 updated_at
@@ -1087,10 +1109,28 @@ function downloadBackupSql(PDO $pdo, int $workspaceId): void
     $inventoryAdjustmentsStatement->execute([':workspace_id' => $workspaceIdSql]);
     $inventoryAdjustments = $inventoryAdjustmentsStatement->fetchAll();
 
+    $inventoryConsumptionsStatement = $pdo->prepare(
+        'SELECT id,
+                workspace_id,
+                intake_log_id,
+                inventory_id,
+                medicine_id,
+                dosage_value,
+                dosage_unit,
+                created_at,
+                updated_at
+         FROM medicine_inventory_consumptions
+         WHERE workspace_id = :workspace_id
+         ORDER BY id ASC'
+    );
+    $inventoryConsumptionsStatement->execute([':workspace_id' => $workspaceIdSql]);
+    $inventoryConsumptions = $inventoryConsumptionsStatement->fetchAll();
+
     $lines = [];
     $lines[] = '-- Medicine Log backup generated at ' . date('c');
     $lines[] = '-- Workspace ID: ' . $workspaceIdSql;
     $lines[] = 'SET FOREIGN_KEY_CHECKS=0;';
+    $lines[] = 'DELETE FROM medicine_inventory_consumptions WHERE workspace_id = ' . $workspaceIdSql . ';';
     $lines[] = 'DELETE FROM medicine_inventory_adjustments WHERE workspace_id = ' . $workspaceIdSql . ';';
     $lines[] = 'DELETE FROM medicine_inventory WHERE workspace_id = ' . $workspaceIdSql . ';';
     $lines[] = 'DELETE FROM medicine_intake_logs WHERE workspace_id = ' . $workspaceIdSql . ';';
@@ -1141,22 +1181,24 @@ function downloadBackupSql(PDO $pdo, int $workspaceId): void
         $inventoryValues = [];
         foreach ($inventoryRows as $row) {
             $inventoryValues[] = sprintf(
-                '(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
+                '(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
                 sqlBackupValue($row['id'] ?? null),
                 sqlBackupValue($row['workspace_id'] ?? null),
                 sqlBackupValue($row['medicine_id'] ?? null),
+                sqlBackupValue($row['initial_stock_on_hand'] ?? null),
                 sqlBackupValue($row['stock_on_hand'] ?? null),
                 sqlBackupValue($row['unit'] ?? null),
                 sqlBackupValue($row['low_stock_threshold'] ?? null),
                 sqlBackupValue($row['reorder_quantity'] ?? null),
                 sqlBackupValue($row['last_restocked_at'] ?? null),
+                sqlBackupValue($row['low_stock_notified_at'] ?? null),
                 sqlBackupValue($row['updated_by_user_id'] ?? null),
                 sqlBackupValue($row['created_at'] ?? null),
                 sqlBackupValue($row['updated_at'] ?? null)
             );
         }
 
-        $lines[] = 'INSERT INTO medicine_inventory (id, workspace_id, medicine_id, stock_on_hand, unit, low_stock_threshold, reorder_quantity, last_restocked_at, updated_by_user_id, created_at, updated_at) VALUES';
+        $lines[] = 'INSERT INTO medicine_inventory (id, workspace_id, medicine_id, initial_stock_on_hand, stock_on_hand, unit, low_stock_threshold, reorder_quantity, last_restocked_at, low_stock_notified_at, updated_by_user_id, created_at, updated_at) VALUES';
         $lines[] = implode(",\n", $inventoryValues) . ';';
         $lines[] = '';
     }
@@ -1182,6 +1224,28 @@ function downloadBackupSql(PDO $pdo, int $workspaceId): void
 
         $lines[] = 'INSERT INTO medicine_inventory_adjustments (id, workspace_id, inventory_id, medicine_id, changed_by_user_id, change_amount, resulting_stock, unit, reason, note, created_at) VALUES';
         $lines[] = implode(",\n", $adjustmentValues) . ';';
+        $lines[] = '';
+    }
+
+    if (is_array($inventoryConsumptions) && $inventoryConsumptions !== []) {
+        $consumptionValues = [];
+        foreach ($inventoryConsumptions as $row) {
+            $consumptionValues[] = sprintf(
+                '(%s, %s, %s, %s, %s, %s, %s, %s, %s)',
+                sqlBackupValue($row['id'] ?? null),
+                sqlBackupValue($row['workspace_id'] ?? null),
+                sqlBackupValue($row['intake_log_id'] ?? null),
+                sqlBackupValue($row['inventory_id'] ?? null),
+                sqlBackupValue($row['medicine_id'] ?? null),
+                sqlBackupValue($row['dosage_value'] ?? null),
+                sqlBackupValue($row['dosage_unit'] ?? null),
+                sqlBackupValue($row['created_at'] ?? null),
+                sqlBackupValue($row['updated_at'] ?? null)
+            );
+        }
+
+        $lines[] = 'INSERT INTO medicine_inventory_consumptions (id, workspace_id, intake_log_id, inventory_id, medicine_id, dosage_value, dosage_unit, created_at, updated_at) VALUES';
+        $lines[] = implode(",\n", $consumptionValues) . ';';
         $lines[] = '';
     }
 
