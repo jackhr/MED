@@ -954,12 +954,52 @@ function downloadBackupJson(PDO $pdo, int $workspaceId): void
     $intakesStatement->execute([':workspace_id' => $workspaceIdSql]);
     $intakes = $intakesStatement->fetchAll();
 
+    $inventoryStatement = $pdo->prepare(
+        'SELECT id,
+                workspace_id,
+                medicine_id,
+                stock_on_hand,
+                unit,
+                low_stock_threshold,
+                reorder_quantity,
+                last_restocked_at,
+                updated_by_user_id,
+                created_at,
+                updated_at
+         FROM medicine_inventory
+         WHERE workspace_id = :workspace_id
+         ORDER BY id ASC'
+    );
+    $inventoryStatement->execute([':workspace_id' => $workspaceIdSql]);
+    $inventoryRows = $inventoryStatement->fetchAll();
+
+    $inventoryAdjustmentsStatement = $pdo->prepare(
+        'SELECT id,
+                workspace_id,
+                inventory_id,
+                medicine_id,
+                changed_by_user_id,
+                change_amount,
+                resulting_stock,
+                unit,
+                reason,
+                note,
+                created_at
+         FROM medicine_inventory_adjustments
+         WHERE workspace_id = :workspace_id
+         ORDER BY id ASC'
+    );
+    $inventoryAdjustmentsStatement->execute([':workspace_id' => $workspaceIdSql]);
+    $inventoryAdjustments = $inventoryAdjustmentsStatement->fetchAll();
+
     $payload = [
         'generated_at' => date('c'),
         'workspace_id' => $workspaceIdSql,
         'tables' => [
             'medicines' => is_array($medicines) ? $medicines : [],
             'medicine_intake_logs' => is_array($intakes) ? $intakes : [],
+            'medicine_inventory' => is_array($inventoryRows) ? $inventoryRows : [],
+            'medicine_inventory_adjustments' => is_array($inventoryAdjustments) ? $inventoryAdjustments : [],
         ],
     ];
 
@@ -1009,10 +1049,50 @@ function downloadBackupSql(PDO $pdo, int $workspaceId): void
     $intakesStatement->execute([':workspace_id' => $workspaceIdSql]);
     $intakes = $intakesStatement->fetchAll();
 
+    $inventoryStatement = $pdo->prepare(
+        'SELECT id,
+                workspace_id,
+                medicine_id,
+                stock_on_hand,
+                unit,
+                low_stock_threshold,
+                reorder_quantity,
+                last_restocked_at,
+                updated_by_user_id,
+                created_at,
+                updated_at
+         FROM medicine_inventory
+         WHERE workspace_id = :workspace_id
+         ORDER BY id ASC'
+    );
+    $inventoryStatement->execute([':workspace_id' => $workspaceIdSql]);
+    $inventoryRows = $inventoryStatement->fetchAll();
+
+    $inventoryAdjustmentsStatement = $pdo->prepare(
+        'SELECT id,
+                workspace_id,
+                inventory_id,
+                medicine_id,
+                changed_by_user_id,
+                change_amount,
+                resulting_stock,
+                unit,
+                reason,
+                note,
+                created_at
+         FROM medicine_inventory_adjustments
+         WHERE workspace_id = :workspace_id
+         ORDER BY id ASC'
+    );
+    $inventoryAdjustmentsStatement->execute([':workspace_id' => $workspaceIdSql]);
+    $inventoryAdjustments = $inventoryAdjustmentsStatement->fetchAll();
+
     $lines = [];
     $lines[] = '-- Medicine Log backup generated at ' . date('c');
     $lines[] = '-- Workspace ID: ' . $workspaceIdSql;
     $lines[] = 'SET FOREIGN_KEY_CHECKS=0;';
+    $lines[] = 'DELETE FROM medicine_inventory_adjustments WHERE workspace_id = ' . $workspaceIdSql . ';';
+    $lines[] = 'DELETE FROM medicine_inventory WHERE workspace_id = ' . $workspaceIdSql . ';';
     $lines[] = 'DELETE FROM medicine_intake_logs WHERE workspace_id = ' . $workspaceIdSql . ';';
     $lines[] = 'DELETE FROM medicines WHERE workspace_id = ' . $workspaceIdSql . ';';
     $lines[] = '';
@@ -1054,6 +1134,54 @@ function downloadBackupSql(PDO $pdo, int $workspaceId): void
 
         $lines[] = 'INSERT INTO medicine_intake_logs (id, workspace_id, medicine_id, logged_by_user_id, dosage_value, dosage_unit, rating, taken_at, notes, created_at) VALUES';
         $lines[] = implode(",\n", $intakeValues) . ';';
+        $lines[] = '';
+    }
+
+    if (is_array($inventoryRows) && $inventoryRows !== []) {
+        $inventoryValues = [];
+        foreach ($inventoryRows as $row) {
+            $inventoryValues[] = sprintf(
+                '(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
+                sqlBackupValue($row['id'] ?? null),
+                sqlBackupValue($row['workspace_id'] ?? null),
+                sqlBackupValue($row['medicine_id'] ?? null),
+                sqlBackupValue($row['stock_on_hand'] ?? null),
+                sqlBackupValue($row['unit'] ?? null),
+                sqlBackupValue($row['low_stock_threshold'] ?? null),
+                sqlBackupValue($row['reorder_quantity'] ?? null),
+                sqlBackupValue($row['last_restocked_at'] ?? null),
+                sqlBackupValue($row['updated_by_user_id'] ?? null),
+                sqlBackupValue($row['created_at'] ?? null),
+                sqlBackupValue($row['updated_at'] ?? null)
+            );
+        }
+
+        $lines[] = 'INSERT INTO medicine_inventory (id, workspace_id, medicine_id, stock_on_hand, unit, low_stock_threshold, reorder_quantity, last_restocked_at, updated_by_user_id, created_at, updated_at) VALUES';
+        $lines[] = implode(",\n", $inventoryValues) . ';';
+        $lines[] = '';
+    }
+
+    if (is_array($inventoryAdjustments) && $inventoryAdjustments !== []) {
+        $adjustmentValues = [];
+        foreach ($inventoryAdjustments as $row) {
+            $adjustmentValues[] = sprintf(
+                '(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
+                sqlBackupValue($row['id'] ?? null),
+                sqlBackupValue($row['workspace_id'] ?? null),
+                sqlBackupValue($row['inventory_id'] ?? null),
+                sqlBackupValue($row['medicine_id'] ?? null),
+                sqlBackupValue($row['changed_by_user_id'] ?? null),
+                sqlBackupValue($row['change_amount'] ?? null),
+                sqlBackupValue($row['resulting_stock'] ?? null),
+                sqlBackupValue($row['unit'] ?? null),
+                sqlBackupValue($row['reason'] ?? null),
+                sqlBackupValue($row['note'] ?? null),
+                sqlBackupValue($row['created_at'] ?? null)
+            );
+        }
+
+        $lines[] = 'INSERT INTO medicine_inventory_adjustments (id, workspace_id, inventory_id, medicine_id, changed_by_user_id, change_amount, resulting_stock, unit, reason, note, created_at) VALUES';
+        $lines[] = implode(",\n", $adjustmentValues) . ';';
         $lines[] = '';
     }
 
@@ -1924,6 +2052,452 @@ function loadMedicineOptions(PDO $pdo, int $workspaceId): array
     ));
 }
 
+function findWorkspaceMedicine(PDO $pdo, int $workspaceId, int $medicineId): ?array
+{
+    if ($workspaceId <= 0 || $medicineId <= 0) {
+        return null;
+    }
+
+    $statement = $pdo->prepare(
+        'SELECT id, name
+         FROM medicines
+         WHERE workspace_id = :workspace_id
+           AND id = :id
+         LIMIT 1'
+    );
+    $statement->execute([
+        ':workspace_id' => $workspaceId,
+        ':id' => $medicineId,
+    ]);
+    $row = $statement->fetch();
+
+    return is_array($row) ? $row : null;
+}
+
+function normalizeInventoryReason(string $value): string
+{
+    $normalized = strtolower(trim($value));
+    $allowed = ['manual_adjustment', 'restock', 'correction', 'consumed', 'waste'];
+
+    return in_array($normalized, $allowed, true)
+        ? $normalized
+        : 'manual_adjustment';
+}
+
+function inventoryReasonLabel(string $value): string
+{
+    return match (normalizeInventoryReason($value)) {
+        'restock' => 'Restock',
+        'correction' => 'Correction',
+        'consumed' => 'Consumed',
+        'waste' => 'Waste',
+        default => 'Manual Adjustment',
+    };
+}
+
+function normalizeInventoryPayload(array $payload): array
+{
+    return [
+        'medicine_id' => (int) ($payload['medicine_id'] ?? 0),
+        'stock_on_hand' => trim((string) ($payload['stock_on_hand'] ?? '')),
+        'unit' => strtolower(trim((string) ($payload['unit'] ?? 'mg'))),
+        'low_stock_threshold' => trim((string) ($payload['low_stock_threshold'] ?? '0')),
+        'reorder_quantity' => trim((string) ($payload['reorder_quantity'] ?? '')),
+        'last_restocked_at' => trim((string) ($payload['last_restocked_at'] ?? '')),
+    ];
+}
+
+function validateInventoryPayload(
+    array $payload,
+    PDO $pdo,
+    int $workspaceId,
+    array $allowedDosageUnits
+): array {
+    $data = normalizeInventoryPayload($payload);
+    $errors = [];
+
+    $medicineName = '';
+    if ($data['medicine_id'] <= 0) {
+        $errors[] = 'Please choose a medicine.';
+    } else {
+        $medicine = findWorkspaceMedicine($pdo, $workspaceId, $data['medicine_id']);
+        if (!is_array($medicine)) {
+            $errors[] = 'The selected medicine does not exist.';
+        } else {
+            $medicineName = trim((string) ($medicine['name'] ?? ''));
+        }
+    }
+
+    if (!in_array($data['unit'], $allowedDosageUnits, true)) {
+        $errors[] = 'Inventory unit is invalid.';
+    }
+
+    $stockOnHandForDb = null;
+    if ($data['stock_on_hand'] === '') {
+        $errors[] = 'Stock on hand is required.';
+    } elseif (!is_numeric($data['stock_on_hand'])) {
+        $errors[] = 'Stock on hand must be a number.';
+    } else {
+        $stockOnHand = (float) $data['stock_on_hand'];
+        if ($stockOnHand < 0) {
+            $errors[] = 'Stock on hand cannot be negative.';
+        } elseif ($stockOnHand > 1000000) {
+            $errors[] = 'Stock on hand is too large.';
+        } else {
+            $stockOnHandForDb = number_format($stockOnHand, 2, '.', '');
+        }
+    }
+
+    $lowStockThresholdForDb = null;
+    if ($data['low_stock_threshold'] === '') {
+        $errors[] = 'Low stock threshold is required.';
+    } elseif (!is_numeric($data['low_stock_threshold'])) {
+        $errors[] = 'Low stock threshold must be a number.';
+    } else {
+        $lowStockThreshold = (float) $data['low_stock_threshold'];
+        if ($lowStockThreshold < 0) {
+            $errors[] = 'Low stock threshold cannot be negative.';
+        } elseif ($lowStockThreshold > 1000000) {
+            $errors[] = 'Low stock threshold is too large.';
+        } else {
+            $lowStockThresholdForDb = number_format($lowStockThreshold, 2, '.', '');
+        }
+    }
+
+    $reorderQuantityForDb = null;
+    if ($data['reorder_quantity'] !== '') {
+        if (!is_numeric($data['reorder_quantity'])) {
+            $errors[] = 'Reorder quantity must be a number.';
+        } else {
+            $reorderQuantity = (float) $data['reorder_quantity'];
+            if ($reorderQuantity <= 0) {
+                $errors[] = 'Reorder quantity must be greater than zero.';
+            } elseif ($reorderQuantity > 1000000) {
+                $errors[] = 'Reorder quantity is too large.';
+            } else {
+                $reorderQuantityForDb = number_format($reorderQuantity, 2, '.', '');
+            }
+        }
+    }
+
+    $lastRestockedAtForDb = null;
+    if ($data['last_restocked_at'] !== '') {
+        $lastRestockedAt = parseTakenAt($data['last_restocked_at']);
+        if (!$lastRestockedAt instanceof DateTimeImmutable) {
+            $errors[] = 'Last restocked date/time is invalid.';
+        } else {
+            $lastRestockedAtForDb = $lastRestockedAt->format('Y-m-d H:i:s');
+        }
+    }
+
+    return [
+        'errors' => $errors,
+        'data' => $data,
+        'medicine_name' => $medicineName,
+        'stock_on_hand_for_db' => $stockOnHandForDb,
+        'low_stock_threshold_for_db' => $lowStockThresholdForDb,
+        'reorder_quantity_for_db' => $reorderQuantityForDb,
+        'last_restocked_at_for_db' => $lastRestockedAtForDb,
+    ];
+}
+
+function normalizeInventoryAdjustmentPayload(array $payload): array
+{
+    return [
+        'medicine_id' => (int) ($payload['medicine_id'] ?? 0),
+        'change_amount' => trim((string) ($payload['change_amount'] ?? '')),
+        'reason' => normalizeInventoryReason((string) ($payload['reason'] ?? 'manual_adjustment')),
+        'note' => utf8Truncate(trim((string) ($payload['note'] ?? '')), 255),
+    ];
+}
+
+function validateInventoryAdjustmentPayload(
+    array $payload,
+    PDO $pdo,
+    int $workspaceId
+): array {
+    $data = normalizeInventoryAdjustmentPayload($payload);
+    $errors = [];
+    $inventoryRecord = null;
+
+    if ($data['medicine_id'] <= 0) {
+        $errors[] = 'Please choose a medicine.';
+    } else {
+        $inventoryStatement = $pdo->prepare(
+            'SELECT i.id,
+                    i.workspace_id,
+                    i.medicine_id,
+                    i.stock_on_hand,
+                    i.unit,
+                    m.name AS medicine_name
+             FROM medicine_inventory i
+             INNER JOIN medicines m ON m.id = i.medicine_id
+                                  AND m.workspace_id = i.workspace_id
+             WHERE i.workspace_id = :workspace_id
+               AND i.medicine_id = :medicine_id
+             LIMIT 1'
+        );
+        $inventoryStatement->execute([
+            ':workspace_id' => $workspaceId,
+            ':medicine_id' => $data['medicine_id'],
+        ]);
+        $inventoryRecord = $inventoryStatement->fetch();
+
+        if (!is_array($inventoryRecord)) {
+            $errors[] = 'Set inventory levels for this medicine before applying adjustments.';
+        }
+    }
+
+    $changeAmountForDb = null;
+    $changeAmountNumber = null;
+    if ($data['change_amount'] === '') {
+        $errors[] = 'Change amount is required.';
+    } elseif (!is_numeric($data['change_amount'])) {
+        $errors[] = 'Change amount must be numeric.';
+    } else {
+        $changeAmountNumber = (float) $data['change_amount'];
+        if (abs($changeAmountNumber) < 0.00001) {
+            $errors[] = 'Change amount cannot be zero.';
+        } elseif (abs($changeAmountNumber) > 1000000) {
+            $errors[] = 'Change amount is too large.';
+        } else {
+            $changeAmountForDb = number_format($changeAmountNumber, 2, '.', '');
+        }
+    }
+
+    if (utf8Length($data['note']) > 255) {
+        $errors[] = 'Adjustment note must be 255 characters or less.';
+    }
+
+    $resultingStockForDb = null;
+    if (is_array($inventoryRecord) && $changeAmountNumber !== null) {
+        $currentStock = (float) ($inventoryRecord['stock_on_hand'] ?? 0);
+        $resultingStock = $currentStock + $changeAmountNumber;
+        if ($resultingStock < -0.00001) {
+            $errors[] = 'Adjustment would make stock negative.';
+        } else {
+            $resultingStockForDb = number_format(max(0.0, $resultingStock), 2, '.', '');
+        }
+    }
+
+    return [
+        'errors' => $errors,
+        'data' => $data,
+        'inventory_record' => $inventoryRecord,
+        'change_amount_for_db' => $changeAmountForDb,
+        'change_amount_number' => $changeAmountNumber,
+        'resulting_stock_for_db' => $resultingStockForDb,
+    ];
+}
+
+function loadMedicineInventory(PDO $pdo, int $workspaceId): array
+{
+    $usageStatement = $pdo->prepare(
+        'SELECT medicine_id,
+                dosage_unit,
+                SUM(dosage_value) / 30 AS avg_daily_usage
+         FROM medicine_intake_logs
+         WHERE workspace_id = :workspace_id
+           AND taken_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+         GROUP BY medicine_id, dosage_unit'
+    );
+    $usageStatement->execute([':workspace_id' => $workspaceId]);
+    $usageRows = $usageStatement->fetchAll();
+    $usageByMedicine = [];
+    foreach ($usageRows as $usageRow) {
+        $medicineId = (int) ($usageRow['medicine_id'] ?? 0);
+        $unit = strtolower(trim((string) ($usageRow['dosage_unit'] ?? '')));
+        if ($medicineId <= 0 || $unit === '') {
+            continue;
+        }
+
+        $usageByMedicine[$medicineId][$unit] = (float) ($usageRow['avg_daily_usage'] ?? 0);
+    }
+
+    $statement = $pdo->prepare(
+        'SELECT m.id AS medicine_id,
+                m.name AS medicine_name,
+                i.id AS inventory_id,
+                i.stock_on_hand,
+                i.unit,
+                i.low_stock_threshold,
+                i.reorder_quantity,
+                i.last_restocked_at,
+                i.updated_by_user_id,
+                i.updated_at,
+                COALESCE(NULLIF(TRIM(u.display_name), ""), u.username) AS updated_by_username
+         FROM medicines m
+         LEFT JOIN medicine_inventory i ON i.workspace_id = m.workspace_id
+                                       AND i.medicine_id = m.id
+         LEFT JOIN app_users u ON u.id = i.updated_by_user_id
+         WHERE m.workspace_id = :workspace_id
+         ORDER BY m.name ASC'
+    );
+    $statement->execute([':workspace_id' => $workspaceId]);
+    $rows = $statement->fetchAll();
+
+    $inventory = [];
+    foreach ($rows as $row) {
+        $medicineId = (int) ($row['medicine_id'] ?? 0);
+        $inventoryId = (int) ($row['inventory_id'] ?? 0);
+        $tracked = $inventoryId > 0;
+        $unit = strtolower(trim((string) ($row['unit'] ?? 'mg')));
+        if ($unit === '') {
+            $unit = 'mg';
+        }
+
+        $stockOnHandRaw = $tracked ? (string) ($row['stock_on_hand'] ?? '0') : '0';
+        $lowStockThresholdRaw = $tracked ? (string) ($row['low_stock_threshold'] ?? '0') : '0';
+        $reorderQuantityRaw = $tracked && isset($row['reorder_quantity']) && $row['reorder_quantity'] !== null
+            ? (string) $row['reorder_quantity']
+            : null;
+
+        $stockOnHand = (float) $stockOnHandRaw;
+        $lowStockThreshold = (float) $lowStockThresholdRaw;
+        $avgDailyUsage = (float) ($usageByMedicine[$medicineId][$unit] ?? 0);
+        $estimatedDaysRemaining = ($tracked && $avgDailyUsage > 0 && $stockOnHand > 0)
+            ? round($stockOnHand / $avgDailyUsage, 1)
+            : null;
+
+        $isOutOfStock = $tracked && $stockOnHand <= 0.00001;
+        $isLowStock = $tracked && !$isOutOfStock && $lowStockThreshold > 0 && $stockOnHand <= $lowStockThreshold;
+        $status = !$tracked
+            ? 'Not tracked'
+            : ($isOutOfStock ? 'Out of stock' : ($isLowStock ? 'Low stock' : 'In stock'));
+
+        $updatedByUsername = trim((string) ($row['updated_by_username'] ?? ''));
+        $lastRestockedAt = isset($row['last_restocked_at']) ? (string) $row['last_restocked_at'] : null;
+
+        $inventory[] = [
+            'inventory_id' => $inventoryId > 0 ? $inventoryId : null,
+            'tracked' => $tracked,
+            'medicine_id' => $medicineId,
+            'medicine_name' => (string) ($row['medicine_name'] ?? ''),
+            'stock_on_hand' => formatDosageValue($stockOnHandRaw),
+            'unit' => $unit,
+            'stock_display' => formatDosageValue($stockOnHandRaw) . ' ' . $unit,
+            'low_stock_threshold' => formatDosageValue($lowStockThresholdRaw),
+            'low_stock_threshold_display' => formatDosageValue($lowStockThresholdRaw) . ' ' . $unit,
+            'reorder_quantity' => $reorderQuantityRaw !== null ? formatDosageValue($reorderQuantityRaw) : null,
+            'reorder_quantity_display' => $reorderQuantityRaw !== null
+                ? (formatDosageValue($reorderQuantityRaw) . ' ' . $unit)
+                : null,
+            'last_restocked_at' => $lastRestockedAt,
+            'last_restocked_at_display' => $lastRestockedAt !== null ? formatDateTime($lastRestockedAt) : null,
+            'updated_at' => isset($row['updated_at']) ? (string) $row['updated_at'] : null,
+            'updated_at_display' => isset($row['updated_at']) && $row['updated_at'] !== null
+                ? formatDateTime((string) $row['updated_at'])
+                : null,
+            'updated_by_username' => $updatedByUsername !== '' ? $updatedByUsername : null,
+            'avg_daily_usage_last_30' => $avgDailyUsage > 0 ? round($avgDailyUsage, 2) : null,
+            'avg_daily_usage_last_30_display' => $avgDailyUsage > 0
+                ? (formatDosageValue((string) round($avgDailyUsage, 2)) . ' ' . $unit . '/day')
+                : null,
+            'estimated_days_remaining' => $estimatedDaysRemaining,
+            'estimated_days_remaining_display' => $estimatedDaysRemaining !== null
+                ? (formatDosageValue((string) $estimatedDaysRemaining) . ' days')
+                : null,
+            'status' => $status,
+            'is_low_stock' => $isLowStock,
+            'is_out_of_stock' => $isOutOfStock,
+        ];
+    }
+
+    return $inventory;
+}
+
+function summarizeMedicineInventory(array $inventoryRows): array
+{
+    $totalMedicines = count($inventoryRows);
+    $trackedCount = 0;
+    $lowStockCount = 0;
+    $outOfStockCount = 0;
+
+    foreach ($inventoryRows as $row) {
+        $tracked = ($row['tracked'] ?? false) === true;
+        if (!$tracked) {
+            continue;
+        }
+
+        $trackedCount += 1;
+        if (($row['is_out_of_stock'] ?? false) === true) {
+            $outOfStockCount += 1;
+        } elseif (($row['is_low_stock'] ?? false) === true) {
+            $lowStockCount += 1;
+        }
+    }
+
+    return [
+        'total_medicines' => $totalMedicines,
+        'tracked_medicines' => $trackedCount,
+        'untracked_medicines' => max(0, $totalMedicines - $trackedCount),
+        'low_stock_medicines' => $lowStockCount,
+        'out_of_stock_medicines' => $outOfStockCount,
+    ];
+}
+
+function loadInventoryAdjustments(PDO $pdo, int $workspaceId, int $limit = 80): array
+{
+    $safeLimit = max(1, min(200, $limit));
+
+    $statement = $pdo->prepare(
+        'SELECT a.id,
+                a.medicine_id,
+                m.name AS medicine_name,
+                a.change_amount,
+                a.resulting_stock,
+                a.unit,
+                a.reason,
+                a.note,
+                a.created_at,
+                COALESCE(NULLIF(TRIM(u.display_name), ""), u.username) AS changed_by_username
+         FROM medicine_inventory_adjustments a
+         INNER JOIN medicines m ON m.id = a.medicine_id
+                              AND m.workspace_id = a.workspace_id
+         LEFT JOIN app_users u ON u.id = a.changed_by_user_id
+         WHERE a.workspace_id = :workspace_id
+         ORDER BY a.created_at DESC, a.id DESC
+         LIMIT :limit'
+    );
+    $statement->bindValue(':workspace_id', $workspaceId, PDO::PARAM_INT);
+    $statement->bindValue(':limit', $safeLimit, PDO::PARAM_INT);
+    $statement->execute();
+    $rows = $statement->fetchAll();
+
+    return array_values(array_map(static function (array $row): array {
+        $changeAmount = (float) ($row['change_amount'] ?? 0);
+        $unit = strtolower(trim((string) ($row['unit'] ?? 'mg')));
+        if ($unit === '') {
+            $unit = 'mg';
+        }
+
+        $changeText = formatDosageValue((string) ($row['change_amount'] ?? '0'));
+        $changeWithSign = ($changeAmount > 0 ? '+' : '') . $changeText;
+        $resultingStockText = formatDosageValue((string) ($row['resulting_stock'] ?? '0'));
+        $changedByUsername = trim((string) ($row['changed_by_username'] ?? ''));
+        $createdAt = (string) ($row['created_at'] ?? '');
+
+        return [
+            'id' => (int) ($row['id'] ?? 0),
+            'medicine_id' => (int) ($row['medicine_id'] ?? 0),
+            'medicine_name' => (string) ($row['medicine_name'] ?? ''),
+            'change_amount' => $changeText,
+            'change_display' => $changeWithSign . ' ' . $unit,
+            'resulting_stock' => $resultingStockText,
+            'resulting_stock_display' => $resultingStockText . ' ' . $unit,
+            'unit' => $unit,
+            'reason' => normalizeInventoryReason((string) ($row['reason'] ?? 'manual_adjustment')),
+            'reason_label' => inventoryReasonLabel((string) ($row['reason'] ?? 'manual_adjustment')),
+            'note' => isset($row['note']) ? (string) $row['note'] : null,
+            'created_at' => $createdAt,
+            'created_at_display' => $createdAt !== '' ? formatDateTime($createdAt) : null,
+            'changed_by_username' => $changedByUsername !== '' ? $changedByUsername : null,
+            'is_positive' => $changeAmount > 0,
+            'is_negative' => $changeAmount < 0,
+        ];
+    }, $rows));
+}
+
 function loadAccount(PDO $pdo, int $userId): ?array
 {
     $statement = $pdo->prepare(
@@ -2186,7 +2760,13 @@ function activePushSubscriptions(PDO $pdo, int $workspaceId, int $userId): array
     return is_array($rows) ? $rows : [];
 }
 
-function dispatchPushForUser(PDO $pdo, int $workspaceId, int $userId, string $source = 'manual', array $context = []): array
+function dispatchPushForUser(
+    PDO $pdo,
+    int $workspaceId,
+    int $userId,
+    string $source = 'manual',
+    array $context = []
+): array
 {
     $subscriptions = activePushSubscriptions($pdo, $workspaceId, $userId);
     $attempted = count($subscriptions);
@@ -2630,6 +3210,8 @@ if ($apiAction !== '') {
         }
 
         $writeApiActions = [
+            'inventory_upsert',
+            'inventory_adjust',
             'schedule_create',
             'schedule_update',
             'schedule_toggle',
@@ -2958,6 +3540,32 @@ if ($apiAction !== '') {
             exit;
         }
 
+        if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'inventory') {
+            $inventoryRows = loadMedicineInventory($pdo, $currentWorkspaceId);
+            jsonResponse([
+                'ok' => true,
+                'inventory' => $inventoryRows,
+                'summary' => summarizeMedicineInventory($inventoryRows),
+                'access' => [
+                    'role' => $currentWorkspaceRole,
+                    'can_write' => workspaceCanWrite($currentWorkspaceRole),
+                ],
+            ]);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'inventory_adjustments') {
+            jsonResponse([
+                'ok' => true,
+                'adjustments' => loadInventoryAdjustments($pdo, $currentWorkspaceId),
+                'access' => [
+                    'role' => $currentWorkspaceRole,
+                    'can_write' => workspaceCanWrite($currentWorkspaceRole),
+                ],
+            ]);
+            exit;
+        }
+
         if ($_SERVER['REQUEST_METHOD'] === 'GET' && $apiAction === 'schedules') {
             if ($currentUserId === null) {
                 jsonResponse([
@@ -3165,6 +3773,223 @@ if ($apiAction !== '') {
             jsonResponse([
                 'ok' => true,
                 'result' => $result,
+            ]);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && $apiAction === 'inventory_upsert') {
+            if ($currentUserId === null) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Authentication required.',
+                ], 401);
+                exit;
+            }
+
+            $payload = requestPayload();
+            $validated = validateInventoryPayload($payload, $pdo, $currentWorkspaceId, $allowedDosageUnits);
+            if ($validated['errors'] !== []) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Validation failed.',
+                    'errors' => $validated['errors'],
+                ], 422);
+                exit;
+            }
+
+            $data = $validated['data'];
+            $statement = $pdo->prepare(
+                'INSERT INTO medicine_inventory (
+                    workspace_id,
+                    medicine_id,
+                    stock_on_hand,
+                    unit,
+                    low_stock_threshold,
+                    reorder_quantity,
+                    last_restocked_at,
+                    updated_by_user_id
+                ) VALUES (
+                    :workspace_id,
+                    :medicine_id,
+                    :stock_on_hand,
+                    :unit,
+                    :low_stock_threshold,
+                    :reorder_quantity,
+                    :last_restocked_at,
+                    :updated_by_user_id
+                )
+                ON DUPLICATE KEY UPDATE
+                    stock_on_hand = VALUES(stock_on_hand),
+                    unit = VALUES(unit),
+                    low_stock_threshold = VALUES(low_stock_threshold),
+                    reorder_quantity = VALUES(reorder_quantity),
+                    last_restocked_at = VALUES(last_restocked_at),
+                    updated_by_user_id = VALUES(updated_by_user_id),
+                    updated_at = CURRENT_TIMESTAMP'
+            );
+            $statement->execute([
+                ':workspace_id' => $currentWorkspaceId,
+                ':medicine_id' => $data['medicine_id'],
+                ':stock_on_hand' => $validated['stock_on_hand_for_db'],
+                ':unit' => $data['unit'],
+                ':low_stock_threshold' => $validated['low_stock_threshold_for_db'],
+                ':reorder_quantity' => $validated['reorder_quantity_for_db'],
+                ':last_restocked_at' => $validated['last_restocked_at_for_db'],
+                ':updated_by_user_id' => $currentUserId,
+            ]);
+
+            jsonResponse([
+                'ok' => true,
+                'message' => 'Inventory saved.',
+            ]);
+            exit;
+        }
+
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && $apiAction === 'inventory_adjust') {
+            if ($currentUserId === null) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Authentication required.',
+                ], 401);
+                exit;
+            }
+
+            $payload = requestPayload();
+            $validated = validateInventoryAdjustmentPayload($payload, $pdo, $currentWorkspaceId);
+            if ($validated['errors'] !== []) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Validation failed.',
+                    'errors' => $validated['errors'],
+                ], 422);
+                exit;
+            }
+
+            $inventoryRecord = $validated['inventory_record'];
+            if (!is_array($inventoryRecord)) {
+                jsonResponse([
+                    'ok' => false,
+                    'error' => 'Inventory record not found.',
+                ], 404);
+                exit;
+            }
+
+            $medicineId = (int) ($validated['data']['medicine_id'] ?? 0);
+            $reason = normalizeInventoryReason((string) ($validated['data']['reason'] ?? 'manual_adjustment'));
+            $note = trim((string) ($validated['data']['note'] ?? ''));
+            $inventoryId = (int) ($inventoryRecord['id'] ?? 0);
+            $unit = strtolower(trim((string) ($inventoryRecord['unit'] ?? 'mg')));
+            if ($unit === '') {
+                $unit = 'mg';
+            }
+
+            $resultingStockForDb = (string) ($validated['resulting_stock_for_db'] ?? '0.00');
+            $changeAmountForDb = (string) ($validated['change_amount_for_db'] ?? '0.00');
+            $changeAmountNumber = (float) ($validated['change_amount_number'] ?? 0);
+            $touchLastRestockedAt = $reason === 'restock' && $changeAmountNumber > 0;
+            $restockedAt = $touchLastRestockedAt
+                ? (new DateTimeImmutable('now'))->format('Y-m-d H:i:s')
+                : null;
+
+            try {
+                $pdo->beginTransaction();
+
+                $lockStatement = $pdo->prepare(
+                    'SELECT id
+                     FROM medicine_inventory
+                     WHERE id = :id
+                       AND workspace_id = :workspace_id
+                     LIMIT 1
+                     FOR UPDATE'
+                );
+                $lockStatement->execute([
+                    ':id' => $inventoryId,
+                    ':workspace_id' => $currentWorkspaceId,
+                ]);
+                if (!is_array($lockStatement->fetch())) {
+                    $pdo->rollBack();
+                    jsonResponse([
+                        'ok' => false,
+                        'error' => 'Inventory record not found.',
+                    ], 404);
+                    exit;
+                }
+
+                $updateStatement = $pdo->prepare(
+                    'UPDATE medicine_inventory
+                     SET stock_on_hand = :stock_on_hand,
+                         updated_by_user_id = :updated_by_user_id,
+                         last_restocked_at = CASE
+                             WHEN :touch_last_restocked_at = 1 THEN :last_restocked_at
+                             ELSE last_restocked_at
+                         END,
+                         updated_at = CURRENT_TIMESTAMP
+                     WHERE id = :id
+                       AND workspace_id = :workspace_id'
+                );
+                $updateStatement->execute([
+                    ':stock_on_hand' => $resultingStockForDb,
+                    ':updated_by_user_id' => $currentUserId,
+                    ':touch_last_restocked_at' => $touchLastRestockedAt ? 1 : 0,
+                    ':last_restocked_at' => $restockedAt,
+                    ':id' => $inventoryId,
+                    ':workspace_id' => $currentWorkspaceId,
+                ]);
+
+                $adjustmentStatement = $pdo->prepare(
+                    'INSERT INTO medicine_inventory_adjustments (
+                        workspace_id,
+                        inventory_id,
+                        medicine_id,
+                        changed_by_user_id,
+                        change_amount,
+                        resulting_stock,
+                        unit,
+                        reason,
+                        note
+                    ) VALUES (
+                        :workspace_id,
+                        :inventory_id,
+                        :medicine_id,
+                        :changed_by_user_id,
+                        :change_amount,
+                        :resulting_stock,
+                        :unit,
+                        :reason,
+                        :note
+                    )'
+                );
+                $adjustmentStatement->execute([
+                    ':workspace_id' => $currentWorkspaceId,
+                    ':inventory_id' => $inventoryId,
+                    ':medicine_id' => $medicineId,
+                    ':changed_by_user_id' => $currentUserId,
+                    ':change_amount' => $changeAmountForDb,
+                    ':resulting_stock' => $resultingStockForDb,
+                    ':unit' => $unit,
+                    ':reason' => $reason,
+                    ':note' => $note !== '' ? $note : null,
+                ]);
+
+                $pdo->commit();
+            } catch (Throwable $exception) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+
+                throw $exception;
+            }
+
+            jsonResponse([
+                'ok' => true,
+                'message' => 'Inventory adjustment applied.',
+                'result' => [
+                    'medicine_id' => $medicineId,
+                    'inventory_id' => $inventoryId,
+                    'new_stock_on_hand' => formatDosageValue($resultingStockForDb),
+                    'unit' => $unit,
+                    'reason' => $reason,
+                ],
             ]);
             exit;
         }
@@ -3663,6 +4488,7 @@ $entryTableColumnCount = $canWriteWorkspaceData ? 7 : 6;
                 <a class="hamburger-link is-active" href="index.php">Dashboard</a>
                 <a class="hamburger-link" href="trends.php">Trends</a>
                 <a class="hamburger-link" href="calendar.php">Calendar</a>
+                <a class="hamburger-link" href="inventory.php">Inventory</a>
                 <?php if ($canWriteWorkspaceData): ?>
                     <a class="hamburger-link" href="schedules.php">Schedules</a>
                 <?php endif; ?>

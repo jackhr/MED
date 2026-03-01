@@ -61,6 +61,7 @@ $canWriteWorkspaceData = Auth::canWrite();
                 <a class="hamburger-link" href="index.php">Dashboard</a>
                 <a class="hamburger-link" href="trends.php">Trends</a>
                 <a class="hamburger-link" href="calendar.php">Calendar</a>
+                <a class="hamburger-link" href="inventory.php">Inventory</a>
                 <?php if ($canWriteWorkspaceData): ?>
                     <a class="hamburger-link" href="schedules.php">Schedules</a>
                 <?php endif; ?>

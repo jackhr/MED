@@ -288,6 +288,13 @@ body.modal-open {
     align-items          : start;
 }
 
+.inventory-grid {
+    display              : grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap                  : 0.95rem;
+    align-items          : start;
+}
+
 .account-grid {
     display              : grid;
     grid-template-columns: minmax(0, 1fr);
@@ -366,6 +373,75 @@ body.modal-open {
     grid-template-columns: minmax(0, 1fr) 340px;
     gap                  : 0.95rem;
     align-items          : start;
+}
+
+.inventory-metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.inventory-form {
+    display: grid;
+    gap    : 0.7rem;
+}
+
+.inventory-form-grid {
+    display              : grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap                  : 0.56rem;
+}
+
+.inventory-form-actions {
+    display    : flex;
+    flex-wrap  : wrap;
+    gap        : 0.5rem;
+    align-items: center;
+}
+
+.inventory-status-pill {
+    display      : inline-flex;
+    align-items  : center;
+    border       : 1px solid #bfd6d1;
+    border-radius: 999px;
+    padding      : 0.16rem 0.48rem;
+    font-size    : 0.79rem;
+    font-weight  : 700;
+    line-height  : 1.2;
+}
+
+.inventory-status-pill.is-ok {
+    border-color: #a7ddbf;
+    background  : #ecfbf2;
+    color       : #18744c;
+}
+
+.inventory-status-pill.is-low {
+    border-color: #f3d6a2;
+    background  : #fff7e8;
+    color       : #8b5b11;
+}
+
+.inventory-status-pill.is-out {
+    border-color: #e8b7bd;
+    background  : #fff2f4;
+    color       : #8d2d37;
+}
+
+.inventory-status-pill.is-untracked {
+    border-color: #cfdad7;
+    background  : #f5f9f8;
+    color       : #4f6763;
+}
+
+.inventory-change {
+    font-weight: 700;
+}
+
+.inventory-change.is-positive {
+    color: #18744c;
+}
+
+.inventory-change.is-negative {
+    color: #8d2d37;
 }
 
 .calendar-scroll {
@@ -1188,6 +1264,10 @@ th:first-child {
         grid-template-columns: 1fr;
     }
 
+    .inventory-grid {
+        grid-template-columns: 1fr;
+    }
+
     .history-filter-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
@@ -1207,6 +1287,10 @@ th:first-child {
     .trends-metrics {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    .inventory-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 }
 
 @media (max-width: 700px) {
@@ -1223,6 +1307,10 @@ th:first-child {
     }
 
     .account-form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .inventory-form-grid {
         grid-template-columns: 1fr;
     }
 
