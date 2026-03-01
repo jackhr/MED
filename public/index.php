@@ -2158,6 +2158,122 @@ function findInventoryConsumptionForEntry(PDO $pdo, int $workspaceId, int $entry
     return is_array($row) ? $row : null;
 }
 
+function normalizeNotificationPayload(array $notification): array
+{
+    $title = utf8Truncate(trim((string) ($notification['title'] ?? 'Medicine reminder')), 120);
+    if ($title === '') {
+        $title = 'Medicine reminder';
+    }
+
+    $body = utf8Truncate(trim((string) ($notification['body'] ?? 'It is time to log a scheduled dose.')), 255);
+    if ($body === '') {
+        $body = 'It is time to log a scheduled dose.';
+    }
+
+    $url = trim((string) ($notification['url'] ?? '/index.php'));
+    if ($url === '') {
+        $url = '/index.php';
+    }
+
+    return [
+        'title' => $title,
+        'body' => $body,
+        'url' => $url,
+    ];
+}
+
+function inventoryLowStockNotificationPayload(array $inventoryRow): array
+{
+    $medicineName = trim((string) ($inventoryRow['medicine_name'] ?? 'Medicine'));
+    if ($medicineName === '') {
+        $medicineName = 'Medicine';
+    }
+
+    $unit = strtolower(trim((string) ($inventoryRow['unit'] ?? 'mg')));
+    if ($unit === '') {
+        $unit = 'mg';
+    }
+
+    $stockOnHand = formatDosageValue((string) ($inventoryRow['stock_on_hand'] ?? '0'));
+    $title = ((float) ($inventoryRow['stock_on_hand'] ?? 0) <= 0.00001)
+        ? 'Out of stock'
+        : 'Low stock warning';
+
+    return normalizeNotificationPayload([
+        'title' => $title,
+        'body' => $medicineName . ' is low: ' . $stockOnHand . ' ' . $unit . ' remaining.',
+        'url' => '/inventory.php',
+    ]);
+}
+
+function reconcileInventoryLowStockState(PDO $pdo, int $workspaceId, int $inventoryId): ?array
+{
+    $inventoryRow = findTrackedInventoryById($pdo, $workspaceId, $inventoryId);
+    if (!is_array($inventoryRow)) {
+        return null;
+    }
+
+    $stockOnHand = (float) ($inventoryRow['stock_on_hand'] ?? 0);
+    $lowStockThreshold = (float) ($inventoryRow['low_stock_threshold'] ?? 0);
+    $notifiedAt = trim((string) ($inventoryRow['low_stock_notified_at'] ?? ''));
+
+    $isLowOrOut = $lowStockThreshold > 0 && $stockOnHand <= $lowStockThreshold;
+    if (!$isLowOrOut) {
+        if ($notifiedAt !== '') {
+            $clearStatement = $pdo->prepare(
+                'UPDATE medicine_inventory
+                 SET low_stock_notified_at = NULL,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE id = :id
+                   AND workspace_id = :workspace_id'
+            );
+            $clearStatement->execute([
+                ':id' => $inventoryId,
+                ':workspace_id' => $workspaceId,
+            ]);
+        }
+
+        return null;
+    }
+
+    if ($notifiedAt !== '') {
+        return null;
+    }
+
+    $recipientIds = activeWorkspacePushRecipientIds($pdo, $workspaceId);
+    if ($recipientIds === []) {
+        return null;
+    }
+
+    $notifiedNow = (new DateTimeImmutable('now'))->format('Y-m-d H:i:s');
+    $markStatement = $pdo->prepare(
+        'UPDATE medicine_inventory
+         SET low_stock_notified_at = :low_stock_notified_at,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = :id
+           AND workspace_id = :workspace_id
+           AND low_stock_notified_at IS NULL'
+    );
+    $markStatement->execute([
+        ':low_stock_notified_at' => $notifiedNow,
+        ':id' => $inventoryId,
+        ':workspace_id' => $workspaceId,
+    ]);
+
+    if ($markStatement->rowCount() <= 0) {
+        return null;
+    }
+
+    $inventoryRow['low_stock_notified_at'] = $notifiedNow;
+
+    return [
+        'inventory_id' => $inventoryId,
+        'medicine_id' => (int) ($inventoryRow['medicine_id'] ?? 0),
+        'medicine_name' => (string) ($inventoryRow['medicine_name'] ?? ''),
+        'notification' => inventoryLowStockNotificationPayload($inventoryRow),
+    ];
+}
+
 function normalizeInventoryReason(string $value): string
 {
     $normalized = strtolower(trim($value));
@@ -2381,7 +2497,8 @@ function syncInventoryConsumptionForEntryChange(
     ?array $newEntry,
     ?int $actingUserId,
     bool $allowNewConsumptionForUnlinkedEntry = false
-): void {
+): array {
+    $notifications = [];
     $entryId = (int) (($newEntry['id'] ?? 0) ?: ($oldEntry['id'] ?? 0));
     $existingConsumption = $entryId > 0
         ? findInventoryConsumptionForEntry($pdo, $workspaceId, $entryId)
@@ -2466,7 +2583,21 @@ function syncInventoryConsumptionForEntryChange(
                 ':workspace_id' => $workspaceId,
             ]);
 
-            return;
+            $notification = reconcileInventoryLowStockState($pdo, $workspaceId, $newInventoryId);
+            if (is_array($notification)) {
+                $notifications[] = [
+                    'workspace_id' => $workspaceId,
+                    'source' => 'inventory_low_stock',
+                    'context' => [
+                        'inventory_id' => $newInventoryId,
+                        'medicine_id' => (int) ($newEntry['medicine_id'] ?? 0),
+                        'intake_log_id' => $entryId,
+                    ],
+                    'notification' => $notification['notification'],
+                ];
+            }
+
+            return ['notifications' => $notifications];
         }
     }
 
@@ -2503,10 +2634,12 @@ function syncInventoryConsumptionForEntryChange(
             ':id' => (int) ($existingConsumption['id'] ?? 0),
             ':workspace_id' => $workspaceId,
         ]);
+
+        reconcileInventoryLowStockState($pdo, $workspaceId, $oldInventoryId);
     }
 
     if (!$shouldApplyNewConsumption || !is_array($newEntry) || !is_array($newInventoryRow)) {
-        return;
+        return ['notifications' => $notifications];
     }
 
     $entryUnit = strtolower(trim((string) ($newEntry['dosage_unit'] ?? 'mg')));
@@ -2520,7 +2653,7 @@ function syncInventoryConsumptionForEntryChange(
 
     $dosageValue = (float) ($newEntry['dosage_value'] ?? 0);
     if ($dosageValue <= 0) {
-        return;
+        return ['notifications' => $notifications];
     }
 
     $availableStock = (float) ($newInventoryRow['stock_on_hand'] ?? 0);
@@ -2577,6 +2710,22 @@ function syncInventoryConsumptionForEntryChange(
         ':dosage_value' => number_format($dosageValue, 2, '.', ''),
         ':dosage_unit' => $entryUnit,
     ]);
+
+    $notification = reconcileInventoryLowStockState($pdo, $workspaceId, (int) ($newInventoryRow['id'] ?? 0));
+    if (is_array($notification)) {
+        $notifications[] = [
+            'workspace_id' => $workspaceId,
+            'source' => 'inventory_low_stock',
+            'context' => [
+                'inventory_id' => (int) ($newInventoryRow['id'] ?? 0),
+                'medicine_id' => (int) ($newEntry['medicine_id'] ?? 0),
+                'intake_log_id' => $entryId,
+            ],
+            'notification' => $notification['notification'],
+        ];
+    }
+
+    return ['notifications' => $notifications];
 }
 
 function loadMedicineInventory(PDO $pdo, int $workspaceId): array
@@ -2613,6 +2762,7 @@ function loadMedicineInventory(PDO $pdo, int $workspaceId): array
                 i.low_stock_threshold,
                 i.reorder_quantity,
                 i.last_restocked_at,
+                i.low_stock_notified_at,
                 i.updated_by_user_id,
                 i.updated_at,
                 COALESCE(NULLIF(TRIM(u.display_name), ""), u.username) AS updated_by_username
@@ -2687,6 +2837,9 @@ function loadMedicineInventory(PDO $pdo, int $workspaceId): array
                 : null,
             'last_restocked_at' => $lastRestockedAt,
             'last_restocked_at_display' => $lastRestockedAt !== null ? formatDateTime($lastRestockedAt) : null,
+            'low_stock_notified_at' => isset($row['low_stock_notified_at']) && $row['low_stock_notified_at'] !== null
+                ? (string) $row['low_stock_notified_at']
+                : null,
             'updated_at' => isset($row['updated_at']) ? (string) $row['updated_at'] : null,
             'updated_at_display' => isset($row['updated_at']) && $row['updated_at'] !== null
                 ? formatDateTime((string) $row['updated_at'])
@@ -3063,14 +3216,65 @@ function activePushSubscriptions(PDO $pdo, int $workspaceId, int $userId): array
     return is_array($rows) ? $rows : [];
 }
 
+function queuePushMessageForUser(PDO $pdo, int $workspaceId, int $userId, array $notification, string $source = 'manual'): void
+{
+    $payload = normalizeNotificationPayload($notification);
+
+    $statement = $pdo->prepare(
+        'INSERT INTO push_messages (workspace_id, user_id, source, title, body, url)
+         VALUES (:workspace_id, :user_id, :source, :title, :body, :url)'
+    );
+    $statement->execute([
+        ':workspace_id' => $workspaceId,
+        ':user_id' => $userId,
+        ':source' => substr(trim($source) !== '' ? trim($source) : 'manual', 0, 40),
+        ':title' => $payload['title'],
+        ':body' => $payload['body'],
+        ':url' => $payload['url'],
+    ]);
+}
+
+function activeWorkspacePushRecipientIds(PDO $pdo, int $workspaceId): array
+{
+    $statement = $pdo->prepare(
+        'SELECT DISTINCT ps.user_id
+         FROM push_subscriptions ps
+         INNER JOIN workspace_users wu ON wu.workspace_id = ps.workspace_id
+                                      AND wu.user_id = ps.user_id
+                                      AND wu.is_active = 1
+         INNER JOIN app_users u ON u.id = ps.user_id
+                               AND u.is_active = 1
+         WHERE ps.workspace_id = :workspace_id
+           AND ps.is_active = 1
+         ORDER BY ps.user_id ASC'
+    );
+    $statement->execute([':workspace_id' => $workspaceId]);
+    $rows = $statement->fetchAll();
+
+    $userIds = [];
+    foreach ($rows as $row) {
+        $userId = (int) ($row['user_id'] ?? 0);
+        if ($userId > 0) {
+            $userIds[] = $userId;
+        }
+    }
+
+    return $userIds;
+}
+
 function dispatchPushForUser(
     PDO $pdo,
     int $workspaceId,
     int $userId,
     string $source = 'manual',
-    array $context = []
+    array $context = [],
+    ?array $notification = null
 ): array
 {
+    if (is_array($notification)) {
+        queuePushMessageForUser($pdo, $workspaceId, $userId, $notification, $source);
+    }
+
     $subscriptions = activePushSubscriptions($pdo, $workspaceId, $userId);
     $attempted = count($subscriptions);
     $sent = 0;
@@ -3162,6 +3366,71 @@ function dispatchPushForUser(
     ));
 
     return $summary;
+}
+
+function dispatchNotificationToWorkspaceRecipients(
+    PDO $pdo,
+    int $workspaceId,
+    array $notification,
+    string $source = 'manual',
+    array $context = []
+): array {
+    $recipientIds = activeWorkspacePushRecipientIds($pdo, $workspaceId);
+    $summary = [
+        'recipient_count' => count($recipientIds),
+        'attempted' => 0,
+        'sent' => 0,
+        'failed' => 0,
+        'deactivated' => 0,
+    ];
+
+    if ($recipientIds === []) {
+        logEvent('warning', 'push.dispatch.no_workspace_recipients', array_merge($context, [
+            'source' => $source,
+            'workspace_id' => $workspaceId,
+        ]));
+        return $summary;
+    }
+
+    foreach ($recipientIds as $recipientId) {
+        $dispatchResult = dispatchPushForUser(
+            $pdo,
+            $workspaceId,
+            $recipientId,
+            $source,
+            $context,
+            $notification
+        );
+        $summary['attempted'] += (int) ($dispatchResult['attempted'] ?? 0);
+        $summary['sent'] += (int) ($dispatchResult['sent'] ?? 0);
+        $summary['failed'] += (int) ($dispatchResult['failed'] ?? 0);
+        $summary['deactivated'] += (int) ($dispatchResult['deactivated'] ?? 0);
+    }
+
+    return $summary;
+}
+
+function dispatchPendingWorkspaceNotifications(PDO $pdo, array $notifications): array
+{
+    $results = [];
+
+    foreach ($notifications as $notificationItem) {
+        $workspaceId = (int) ($notificationItem['workspace_id'] ?? 0);
+        $notification = $notificationItem['notification'] ?? null;
+        if ($workspaceId <= 0 || !is_array($notification)) {
+            continue;
+        }
+
+        $results[] = dispatchNotificationToWorkspaceRecipients(
+            $pdo,
+            $workspaceId,
+            $notification,
+            (string) ($notificationItem['source'] ?? 'manual'),
+            is_array($notificationItem['context'] ?? null) ? $notificationItem['context'] : []
+        );
+    }
+
+    return $results;
 }
 
 function processDueReminders(PDO $pdo, ?int $workspaceId = null, ?int $userId = null, array $sourceContext = []): array
@@ -3330,6 +3599,13 @@ function processDueReminders(PDO $pdo, ?int $workspaceId = null, ?int $userId = 
                 'schedule_id' => $scheduleId,
                 'scheduled_for' => $scheduledForDb,
                 'medicine_id' => (int) ($schedule['medicine_id'] ?? 0),
+            ],
+            [
+                'title' => 'Medicine reminder',
+                'body' => trim((string) ($schedule['reminder_message'] ?? '')) !== ''
+                    ? trim((string) ($schedule['reminder_message'] ?? ''))
+                    : 'It is time to log a scheduled dose.',
+                'url' => '/index.php',
             ]
         );
         $sent += (int) ($dispatchResult['sent'] ?? 0);
@@ -3406,27 +3682,17 @@ function loadLatestPushNotificationForUser(PDO $pdo, int $workspaceId, int $user
         'url' => '/index.php',
     ];
 
-    $timezoneName = Env::get('APP_TIMEZONE', 'UTC') ?? 'UTC';
-    $timezone = new DateTimeZone($timezoneName);
-    $threshold = (new DateTimeImmutable('now', $timezone))
-        ->setTime(0, 0, 0)
-        ->format('Y-m-d H:i:s');
-
     $statement = $pdo->prepare(
-        'SELECT d.scheduled_for,
-                s.reminder_message
-         FROM reminder_dispatches d
-         INNER JOIN dose_schedules s ON s.id = d.schedule_id
-         WHERE s.workspace_id = :workspace_id
-           AND s.user_id = :user_id
-           AND d.scheduled_for >= :threshold
-         ORDER BY d.scheduled_for DESC, d.id DESC
+        'SELECT title, body, url
+         FROM push_messages
+         WHERE workspace_id = :workspace_id
+           AND user_id = :user_id
+         ORDER BY created_at DESC, id DESC
          LIMIT 1'
     );
     $statement->execute([
         ':workspace_id' => $workspaceId,
         ':user_id' => $userId,
-        ':threshold' => $threshold,
     ]);
     $row = $statement->fetch();
 
@@ -3434,13 +3700,11 @@ function loadLatestPushNotificationForUser(PDO $pdo, int $workspaceId, int $user
         return $defaultNotification;
     }
 
-    $customMessage = trim((string) ($row['reminder_message'] ?? ''));
-    if ($customMessage === '') {
-        return $defaultNotification;
-    }
-
-    $defaultNotification['body'] = $customMessage;
-    return $defaultNotification;
+    return normalizeNotificationPayload([
+        'title' => (string) ($row['title'] ?? $defaultNotification['title']),
+        'body' => (string) ($row['body'] ?? $defaultNotification['body']),
+        'url' => (string) ($row['url'] ?? $defaultNotification['url']),
+    ]);
 }
 
 function resolvePushNotificationTargetFromEndpoint(PDO $pdo, string $endpoint): ?array
@@ -4101,6 +4365,7 @@ if ($apiAction !== '') {
             }
 
             $data = $validated['data'];
+            $pendingNotifications = [];
             $existingInventory = findTrackedInventoryByMedicine($pdo, $currentWorkspaceId, $data['medicine_id']);
             if (is_array($existingInventory)) {
                 $existingUnit = strtolower(trim((string) ($existingInventory['unit'] ?? 'mg')));
@@ -4172,6 +4437,32 @@ if ($apiAction !== '') {
                     ':updated_by_user_id' => $currentUserId,
                 ]);
 
+                $savedInventory = findTrackedInventoryByMedicine(
+                    $pdo,
+                    $currentWorkspaceId,
+                    $data['medicine_id']
+                );
+                if (!is_array($savedInventory)) {
+                    throw new RuntimeException('Inventory record could not be saved.');
+                }
+
+                $notification = reconcileInventoryLowStockState(
+                    $pdo,
+                    $currentWorkspaceId,
+                    (int) ($savedInventory['id'] ?? 0)
+                );
+                if (is_array($notification)) {
+                    $pendingNotifications[] = [
+                        'workspace_id' => $currentWorkspaceId,
+                        'source' => 'inventory_low_stock',
+                        'context' => [
+                            'inventory_id' => (int) ($savedInventory['id'] ?? 0),
+                            'medicine_id' => $data['medicine_id'],
+                        ],
+                        'notification' => $notification['notification'],
+                    ];
+                }
+
                 $pdo->commit();
             } catch (Throwable $exception) {
                 if ($pdo->inTransaction()) {
@@ -4180,6 +4471,8 @@ if ($apiAction !== '') {
 
                 throw $exception;
             }
+
+            dispatchPendingWorkspaceNotifications($pdo, $pendingNotifications);
 
             jsonResponse([
                 'ok' => true,
@@ -4233,6 +4526,7 @@ if ($apiAction !== '') {
             $restockedAt = $touchLastRestockedAt
                 ? (new DateTimeImmutable('now'))->format('Y-m-d H:i:s')
                 : null;
+            $pendingNotifications = [];
 
             try {
                 $pdo->beginTransaction();
@@ -4319,6 +4613,20 @@ if ($apiAction !== '') {
                     ':note' => $note !== '' ? $note : null,
                 ]);
 
+                $notification = reconcileInventoryLowStockState($pdo, $currentWorkspaceId, $inventoryId);
+                if (is_array($notification)) {
+                    $pendingNotifications[] = [
+                        'workspace_id' => $currentWorkspaceId,
+                        'source' => 'inventory_low_stock',
+                        'context' => [
+                            'inventory_id' => $inventoryId,
+                            'medicine_id' => $medicineId,
+                            'reason' => $reason,
+                        ],
+                        'notification' => $notification['notification'],
+                    ];
+                }
+
                 $pdo->commit();
             } catch (Throwable $exception) {
                 if ($pdo->inTransaction()) {
@@ -4327,6 +4635,8 @@ if ($apiAction !== '') {
 
                 throw $exception;
             }
+
+            dispatchPendingWorkspaceNotifications($pdo, $pendingNotifications);
 
             jsonResponse([
                 'ok' => true,
@@ -4619,6 +4929,10 @@ if ($apiAction !== '') {
             $dispatch = dispatchPushForUser($pdo, $currentWorkspaceId, $currentUserId, 'push_test', [
                 'api' => 'push_test',
                 'remote_ip' => requestIp(),
+            ], [
+                'title' => 'Medicine reminder',
+                'body' => 'This is a test push from Medicine Intake Dashboard.',
+                'url' => '/index.php',
             ]);
             jsonResponse([
                 'ok' => true,
@@ -4642,6 +4956,7 @@ if ($apiAction !== '') {
 
             $data = $validated['data'];
             $entry = null;
+            $pendingNotifications = [];
 
             try {
                 $pdo->beginTransaction();
@@ -4667,13 +4982,17 @@ if ($apiAction !== '') {
                     throw new RuntimeException('The new intake entry could not be loaded.');
                 }
 
-                syncInventoryConsumptionForEntryChange(
+                $inventorySync = syncInventoryConsumptionForEntryChange(
                     $pdo,
                     $currentWorkspaceId,
                     null,
                     $entry,
                     $currentUserId,
                     true
+                );
+                $pendingNotifications = array_merge(
+                    $pendingNotifications,
+                    (array) ($inventorySync['notifications'] ?? [])
                 );
 
                 $pdo->commit();
@@ -4694,6 +5013,8 @@ if ($apiAction !== '') {
 
                 throw $exception;
             }
+
+            dispatchPendingWorkspaceNotifications($pdo, $pendingNotifications);
 
             jsonResponse([
                 'ok' => true,
@@ -4736,6 +5057,7 @@ if ($apiAction !== '') {
 
             $data = $validated['data'];
             $updatedEntry = null;
+            $pendingNotifications = [];
 
             try {
                 $pdo->beginTransaction();
@@ -4767,13 +5089,17 @@ if ($apiAction !== '') {
                     throw new RuntimeException('The updated intake entry could not be loaded.');
                 }
 
-                syncInventoryConsumptionForEntryChange(
+                $inventorySync = syncInventoryConsumptionForEntryChange(
                     $pdo,
                     $currentWorkspaceId,
                     $existingEntry,
                     $updatedEntry,
                     $currentUserId,
                     false
+                );
+                $pendingNotifications = array_merge(
+                    $pendingNotifications,
+                    (array) ($inventorySync['notifications'] ?? [])
                 );
 
                 $pdo->commit();
@@ -4794,6 +5120,8 @@ if ($apiAction !== '') {
 
                 throw $exception;
             }
+
+            dispatchPendingWorkspaceNotifications($pdo, $pendingNotifications);
 
             jsonResponse([
                 'ok' => true,
