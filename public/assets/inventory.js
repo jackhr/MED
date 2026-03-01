@@ -283,7 +283,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!Array.isArray(rows) || rows.length === 0) {
       emptyRow(
         inventoryBody,
-        canWrite ? 8 : 7,
+        canWrite ? 9 : 8,
         "No medicine types available. Add medicines from the dashboard."
       );
       return;
@@ -292,6 +292,9 @@ document.addEventListener("DOMContentLoaded", () => {
     rows.forEach((row) => {
       const tableRow = document.createElement("tr");
       tableRow.appendChild(tableCell(row.medicine_name || "-"));
+      tableRow.appendChild(
+        tableCell(row.tracked ? row.initial_stock_on_hand_display : "-")
+      );
       tableRow.appendChild(tableCell(row.tracked ? row.stock_display : "-"));
       tableRow.appendChild(
         tableCell(row.tracked ? row.low_stock_threshold_display : "-")
@@ -401,7 +404,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   if (!dbReady) {
-    emptyRow(inventoryBody, canWrite ? 8 : 7, "Database unavailable.");
+    emptyRow(inventoryBody, canWrite ? 9 : 8, "Database unavailable.");
     emptyRow(adjustmentsBody, 7, "Database unavailable.");
     if (inventoryMeta) {
       inventoryMeta.textContent = "Database unavailable.";
@@ -537,7 +540,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   Promise.all([loadInventory(), loadAdjustments()]).catch((error) => {
     showStatus(error.message, "error");
-    emptyRow(inventoryBody, canWrite ? 8 : 7, "Could not load inventory.");
+    emptyRow(inventoryBody, canWrite ? 9 : 8, "Could not load inventory.");
     emptyRow(adjustmentsBody, 7, "Could not load adjustments.");
   });
 });

@@ -28,7 +28,7 @@ $dbReady = $pdo instanceof PDO;
 $signedInUsername = Auth::displayLabel() ?? '';
 $workspaceRole = Auth::workspaceRole() ?? 'viewer';
 $canWriteWorkspaceData = Auth::canWrite();
-$inventoryTableColumnCount = $canWriteWorkspaceData ? 8 : 7;
+$inventoryTableColumnCount = $canWriteWorkspaceData ? 9 : 8;
 ?>
 <!doctype html>
 <html lang="en">
@@ -114,6 +114,7 @@ $inventoryTableColumnCount = $canWriteWorkspaceData ? 8 : 7;
             <section class="inventory-grid">
                 <article class="card">
                     <h2>Set Inventory Levels</h2>
+                    <p class="meta-text">The first save records the starting inventory. New intake logs automatically deduct from the remaining stock.</p>
                     <form id="inventory-form" class="inventory-form" novalidate>
                         <div class="inventory-form-grid">
                             <div>
@@ -134,7 +135,7 @@ $inventoryTableColumnCount = $canWriteWorkspaceData ? 8 : 7;
                             </div>
 
                             <div>
-                                <label for="inventory_stock_on_hand">Stock On Hand</label>
+                                <label for="inventory_stock_on_hand">Current Remaining Stock</label>
                                 <input
                                     id="inventory_stock_on_hand"
                                     name="inventory_stock_on_hand"
@@ -215,7 +216,6 @@ $inventoryTableColumnCount = $canWriteWorkspaceData ? 8 : 7;
                                     <option value="restock">Restock</option>
                                     <option value="waste">Waste</option>
                                     <option value="correction">Correction</option>
-                                    <option value="consumed">Consumed</option>
                                 </select>
                             </div>
 
@@ -249,7 +249,8 @@ $inventoryTableColumnCount = $canWriteWorkspaceData ? 8 : 7;
                     <thead>
                         <tr>
                             <th>Medicine</th>
-                            <th>On Hand</th>
+                            <th>Initial</th>
+                            <th>Remaining</th>
                             <th>Low Threshold</th>
                             <th>Reorder Qty</th>
                             <th>Last Restocked</th>
